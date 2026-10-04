@@ -1292,8 +1292,10 @@ input:checked + .slider::before {
   }
 
   .foot-visual-container {
-    width: 190px;
-    height: 285px; /* Proporção ideal para visualização completa no celular */
+    width: 200px;
+    height: 300px; /* Proporção exata 2:3 da imagem clean_foot.png */
+    position: relative;
+    margin: 0 auto;
   }
 
   .zone-tooltip {
@@ -1303,17 +1305,17 @@ input:checked + .slider::before {
   .heat-zone {
     width: 44px;
     height: 44px;
-    margin-left: -22px;
-    margin-top: -22px;
+    margin: 0 !important; /* Sem margens adicionais para manter alinhamento anatômico milimétrico */
+    transform: translate(-50%, -50%) !important;
   }
 
   .heat-core {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
   }
 
   .zone-tag {
-    font-size: 0.70rem;
+    font-size: 0.72rem;
   }
 
   .clinical-legend {
