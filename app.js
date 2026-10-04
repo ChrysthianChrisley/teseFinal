@@ -300,7 +300,11 @@ btnBle?.addEventListener('click', async () => {
 
   try {
     const device = await navigator.bluetooth.requestDevice({
-      filters: [{ name: 'MonitorPlantar' }],
+      filters: [
+        { name: 'Palmilha_v5.0' },
+        { namePrefix: 'Palmilha' },
+        { name: 'MonitorPlantar' }
+      ],
       optionalServices: [BLE_SVC_UUID]
     });
 

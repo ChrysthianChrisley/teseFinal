@@ -176,9 +176,8 @@ void imprimirCSV(uint32_t agora, uint32_t intervalo) {
 
 #if HABILITAR_BLE
 void inicializarBLE() {
-  // Nome e chaves JSON seguem o app.js local MonitorPlantar.
-  // Compatibilidade de execucao ainda depende de teste real com o cliente.
-  BLEDevice::init("MonitorPlantar");
+  // Nome formatado conforme versionamento semantico (v5.0).
+  BLEDevice::init("Palmilha_v5.0");
   BLEDevice::setMTU(185); // MTU local; nao garante negociacao pelo cliente.
   servidorBLE = BLEDevice::createServer();
   servidorBLE->advertiseOnDisconnect(true);
@@ -237,7 +236,7 @@ void setup() {
   }
 #if HABILITAR_BLE
   inicializarBLE();
-  Serial.println("# BLE habilitado: MonitorPlantar, JSON; exige MTU negociada suficiente.");
+  Serial.println("# BLE habilitado: Palmilha_v5.0, JSON; exige MTU negociada suficiente.");
 #else
   Serial.println("# BLE desligado para bancada. HABILITAR_BLE=1 habilita modo opcional.");
 #endif
