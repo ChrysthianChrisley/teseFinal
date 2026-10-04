@@ -139,8 +139,8 @@ function render(data) {
   // 1. PROCESSAMENTO DAS ZONAS DE PRESSÃO (FSR)
   // Ordem anatômica: m1 (1º Metatarso), m5 (5º Metatarso), calc (Calcâneo)
   const zones = [
-    { id: 'm1',   label: '1º Metatarso', pin: 'GPIO 39 (VN)', raw: data.meta1 ?? 0 },
-    { id: 'm5',   label: '5º Metatarso', pin: 'GPIO 33 (IO33)', raw: data.meta5 ?? 0 },
+    { id: 'm1',   label: '1º Metatarso', pin: 'GPIO 33', raw: data.meta1 ?? 0 },
+    { id: 'm5',   label: '5º Metatarso', pin: 'GPIO 39 (VN)', raw: data.meta5 ?? 0 },
     { id: 'calc', label: 'Calcâneo',     pin: 'GPIO 36 (VP)', raw: data.calcaneo ?? 0 },
   ];
 
