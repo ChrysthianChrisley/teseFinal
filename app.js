@@ -317,12 +317,6 @@ btnBle?.addEventListener('click', async () => {
 
     setConnectionState('ble', true);
 
-    // Se o modo demo estiver ativo, desativa para priorizar dados reais
-    const chkDemo = document.getElementById('chk-demo');
-    if (chkDemo && chkDemo.checked) {
-      chkDemo.checked = false;
-      stopDemo();
-    }
   } catch (err) {
     console.warn('Erro na conexão BLE:', err);
     if (err.name !== 'NotFoundError') {
@@ -379,12 +373,6 @@ btnSerial?.addEventListener('click', async () => {
 
     setConnectionState('serial', true);
 
-    // Desativa modo demo
-    const chkDemo = document.getElementById('chk-demo');
-    if (chkDemo && chkDemo.checked) {
-      chkDemo.checked = false;
-      stopDemo();
-    }
 
     readSerialStream(port);
   } catch (err) {
@@ -510,82 +498,30 @@ async function disconnectAll() {
   setConnectionState('none', false);
 }
 
-// ── MODO DEMONSTRAÇÃO / SIMULAÇÃO DE MARCHA E MICROCLIMA ───────────────────
-const chkDemo = document.getElementById('chk-demo');
-chkDemo?.addEventListener('change', (e) => {
-  if (e.target.checked) {
-    disconnectAll();
-    startDemo();
-  } else {
-    stopDemo();
-  }
-});
-
-function startDemo() {
-  if (state.demoTimer) return;
-  state.demoStepCount = 0;
-  // Atualização suave a cada 250ms simulando o ciclo de marcha
-  state.demoTimer = setInterval(demoTick, 250);
-}
-
-function stopDemo() {
-  if (state.demoTimer) {
-    clearInterval(state.demoTimer);
-    state.demoTimer = null;
-  }
-}
-
-function demoTick() {
-  state.demoStepCount++;
-  const cycle = (state.demoStepCount % 16); // Ciclo com 16 fases
-
-  let calcVal = 200;
-  let m1Val   = 200;
-  let m5Val   = 200;
-
-  // Fase 1 a 4: Contato Inicial (Heel Strike) - Calcâneo sob alta carga
-  if (cycle >= 0 && cycle < 4) {
-    calcVal = 2200 + Math.round(750 * Math.sin((cycle / 4) * Math.PI));
-    m1Val = 300 + Math.round(150 * Math.random());
-    m5Val = 350 + Math.round(180 * Math.random());
-  }
-  // Fase 5 a 8: Apoio Médio (Midstance) - Transição de carga pela borda lateral
-  else if (cycle >= 4 && cycle < 8) {
-    calcVal = 950 + Math.round(200 * Math.random());
-    m5Val   = 1750 + Math.round(500 * Math.sin(((cycle - 4) / 4) * Math.PI));
-    m1Val   = 800 + Math.round(300 * Math.random());
-  }
-  // Fase 9 a 12: Propulsão / Apoio Terminal (Toe-off) - M1 e M5 sob alta carga
-  else if (cycle >= 8 && cycle < 12) {
-    calcVal = 250 + Math.round(80 * Math.random());
-    m1Val   = 2400 + Math.round(850 * Math.sin(((cycle - 8) / 4) * Math.PI));
-    m5Val   = 1500 + Math.round(400 * Math.sin(((cycle - 8) / 4) * Math.PI));
-  }
-  // Fase 13 a 15: Balanço (Swing phase) - Pé no ar, todos descarregados
-  else {
-    calcVal = 180 + Math.round(50 * Math.random());
-    m1Val   = 190 + Math.round(60 * Math.random());
-    m5Val   = 170 + Math.round(50 * Math.random());
-  }
-
-  // Simulação térmica e de umidade lenta
-  const slowTime = state.demoStepCount * 0.05;
-  const tempSim = 32.2 + 1.2 * Math.sin(slowTime) + (Math.random() * 0.1);
-  const umidSim = 58.0 + 8.0 * Math.cos(slowTime * 0.7) + (Math.random() * 0.4);
-
+// ── INICIALIZAÇÃO DA INTERFACE (AGUARDANDO DADOS REAIS) ────────────────────
+function renderInitialState() {
   render({
-    calcaneo: calcVal,
-    meta1: m1Val,
-    meta5: m5Val,
-    temp: tempSim,
-    umid: umidSim,
-    seq: state.demoStepCount
+    calcaneo: 0,
+    meta1: 0,
+    meta5: 0,
+    temp: null,
+    umid: null,
+    seq: null
   });
+
+  const card = document.getElementById('card-hero-status');
+  const icon = document.getElementById('hero-status-icon');
+  const tag = document.getElementById('hero-status-tag');
+  const title = document.getElementById('hero-status-title');
+  const desc = document.getElementById('hero-status-desc');
+
+  if (card) card.className = 'card card-hero-status status-ok';
+  if (icon) icon.textContent = '👟';
+  if (tag) tag.textContent = 'Aguardando Dispositivo';
+  if (title) title.textContent = 'Pronto para monitoramento';
+  if (desc) desc.textContent = 'Conecte a palmilha via Cabo USB ou Bluetooth (BLE) acima para iniciar a leitura dos sensores em tempo real.';
 }
 
-// ── INICIALIZAÇÃO AUTOMÁTICA AO CARREGAR A PÁGINA ──────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
-  if (chkDemo && chkDemo.checked) {
-    startDemo();
-  }
+  renderInitialState();
 });
