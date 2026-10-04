@@ -17,7 +17,7 @@
 #include <math.h>
 
 #ifndef HABILITAR_BLE
-#define HABILITAR_BLE 1
+#define HABILITAR_BLE 0
 #endif
 
 #if HABILITAR_BLE
@@ -189,9 +189,7 @@ void inicializarBLE() {
   BLEAdvertising *anuncio = BLEDevice::getAdvertising();
   anuncio->addServiceUUID(UUID_SERVICO);
   anuncio->setScanResponse(true);
-  anuncio->setMinPreferred(0x06); // Ajuda na descoberta por smartphones Android/iOS
-  anuncio->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
+  anuncio->start();
 }
 
 void publicarBLE(uint32_t agora) {
