@@ -253,6 +253,10 @@ body {
   gap: 10px;
 }
 
+.mode-container.mode-center {
+  justify-content: center;
+}
+
 .mode-left {
   display: flex;
   align-items: center;
@@ -416,6 +420,22 @@ input:checked + .slider::before {
 }
 
 /* Estados Clínicos do Hero Status */
+.card-hero-status.status-waiting {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+.card-hero-status.status-waiting .hero-status-icon-wrapper {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.card-hero-status.status-waiting .hero-status-tag {
+  background: #e2e8f0;
+  color: var(--text-muted);
+}
+.card-hero-status.status-waiting .hero-status-title {
+  color: var(--text-main);
+}
+
 .card-hero-status.status-ok {
   background: var(--status-ok-bg);
   border-color: var(--status-ok-border);

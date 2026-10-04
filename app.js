@@ -182,7 +182,9 @@ function render(data) {
   }
 
   // 3. ATUALIZAÇÃO DO STATUS GERAL DO PACIENTE (HERO STATUS)
-  updateHeroStatus(globalWorstLevel, activeAlerts);
+  if (state.isConnected) {
+    updateHeroStatus(globalWorstLevel, activeAlerts);
+  }
 
   // 4. REGISTRO DE EVENTOS NO HISTÓRICO
   activeAlerts.forEach(a => recordAlertEvent(a.level, a.msg));
@@ -445,8 +447,10 @@ function processSerialText(chunk) {
 }
 
 // ── GERENCIAMENTO DE ESTADO DE CONEXÃO E BOTÕES ───────────────────────────
+// ── GERENCIAMENTO DE ESTADO DE CONEXÃO E BOTÕES ───────────────────────────
 function setConnectionState(type, isConnected) {
   state.connectionType = isConnected ? type : 'none';
+  state.isConnected = isConnected;
 
   const pill = document.getElementById('conn-pill');
   const label = document.getElementById('conn-label');
@@ -459,22 +463,40 @@ function setConnectionState(type, isConnected) {
       label.textContent = 'Conectado via BLE (Sem Fio)';
       btnBle.classList.add('active-connected');
       btnBleText.textContent = 'Desconectar BLE';
-      btnSerial.disabled = true;
+      if (btnSerial) btnSerial.disabled = true;
     } else if (type === 'serial') {
       label.textContent = 'Conectado via Cabo USB (115200)';
-      btnSerial.classList.add('active-connected');
-      btnSerialText.textContent = 'Desconectar USB';
+      if (btnSerial) btnSerial.classList.add('active-connected');
+      if (btnSerialText) btnSerialText.textContent = 'Desconectar USB';
       btnBle.disabled = true;
     }
+
+    // Assim que a conexão for estabelecida, desabilita a mensagem de espera inicial
+    const card = document.getElementById('card-hero-status');
+    const icon = document.getElementById('hero-status-icon');
+    const tag = document.getElementById('hero-status-tag');
+    const title = document.getElementById('hero-status-title');
+    const desc = document.getElementById('hero-status-desc');
+
+    if (card) card.className = 'card card-hero-status status-ok';
+    if (icon) icon.textContent = '🛡️';
+    if (tag) tag.textContent = 'Monitoramento Ativo';
+    if (title) title.textContent = 'Palmilha Conectada';
+    if (desc) desc.textContent = 'Transmissão em tempo real iniciada. Aguardando primeiras leituras dos sensores.';
   } else {
     pill.classList.remove('connected');
     label.textContent = 'Desconectado';
     btnBle.classList.remove('active-connected');
     btnBle.disabled = false;
     btnBleText.textContent = 'Conectar BLE';
-    btnSerial.classList.remove('active-connected');
-    btnSerial.disabled = false;
-    btnSerialText.textContent = 'Cabo USB';
+    if (btnSerial) {
+      btnSerial.classList.remove('active-connected');
+      btnSerial.disabled = false;
+      if (btnSerialText) btnSerialText.textContent = 'Cabo USB';
+    }
+
+    // Reabilita mensagem de aguardando dispositivo
+    renderInitialState();
   }
 }
 
@@ -504,14 +526,7 @@ async function disconnectAll() {
 
 // ── INICIALIZAÇÃO DA INTERFACE (AGUARDANDO DADOS REAIS) ────────────────────
 function renderInitialState() {
-  render({
-    calcaneo: 0,
-    meta1: 0,
-    meta5: 0,
-    temp: null,
-    umid: null,
-    seq: null
-  });
+  state.isConnected = false;
 
   const card = document.getElementById('card-hero-status');
   const icon = document.getElementById('hero-status-icon');
@@ -519,11 +534,13 @@ function renderInitialState() {
   const title = document.getElementById('hero-status-title');
   const desc = document.getElementById('hero-status-desc');
 
-  if (card) card.className = 'card card-hero-status status-ok';
-  if (icon) icon.textContent = '👟';
+  if (card) card.className = 'card card-hero-status status-waiting';
+  if (icon) {
+    icon.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 7 10 10-5 5V2l5 5L7 17"/></svg>`;
+  }
   if (tag) tag.textContent = 'Aguardando Dispositivo';
   if (title) title.textContent = 'Pronto para monitoramento';
-  if (desc) desc.textContent = 'Conecte a palmilha via Cabo USB ou Bluetooth (BLE) acima para iniciar a leitura dos sensores em tempo real.';
+  if (desc) desc.textContent = 'Conecte a palmilha via Bluetooth (BLE) acima para iniciar a leitura dos sensores em tempo real.';
 }
 
 window.addEventListener('DOMContentLoaded', () => {
