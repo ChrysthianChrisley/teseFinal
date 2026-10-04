@@ -35,7 +35,7 @@ uint32_t ultimoAvisoMTU = 0;
 const uint8_t PINOS_FSR[3] = {36, 39, 33}; // Calcaneo, M1, M5
 const uint8_t PINO_SDA = 21;
 const uint8_t PINO_SCL = 22;
-const uint8_t ENDERECO_AHT10 = 0x38;
+uint8_t enderecoAHT = 0x38;
 const uint8_t NUM_AMOSTRAS = 10;
 const uint32_t PERIODO_FSR_MS = 100;
 const uint32_t PERIODO_AHT_MS = 2000;
@@ -51,6 +51,14 @@ uint8_t indiceFiltro = 0;
 uint8_t quantidadeFiltro = 0;
 uint32_t ultimaAmostra = 0;
 uint32_t sequencia = 0;
+
+// ── TARA DE REPOUSO / COMPENSACAO DE PRE-CARGA MECANICA ──
+#ifndef HABILITAR_TARA
+#define HABILITAR_TARA 1
+#endif
+int adcTara[3] = {0, 0, 0};
+int adcLiquido[3] = {0, 0, 0};
+bool taraConcluida = false;
 
 bool ahtInicializado = false;
 bool ahtValido = false;
@@ -72,74 +80,163 @@ void invalidarAHT(uint8_t erro) {
   umidadeRH = NAN;
 }
 
+void escanearBarramentoI2C() {
+  Serial.println("# --- Varredura do Barramento I2C (SDA=21, SCL=22) ---");
+  uint8_t encontrados = 0;
+  for (uint8_t endereco = 1; endereco < 127; ++endereco) {
+    Wire.beginTransmission(endereco);
+    uint8_t erro = Wire.endTransmission();
+    if (erro == 0) {
+      Serial.print("# [OK] Dispositivo I2C encontrado no endereco 0x");
+      if (endereco < 16) Serial.print('0');
+      Serial.print(endereco, HEX);
+      if (endereco == 0x38 || endereco == 0x39) {
+        Serial.println(" -> Sensor AHT10/AHT20 detectado!");
+        enderecoAHT = endereco;
+      } else if (endereco == 0x3C || endereco == 0x3D) {
+        Serial.println(" -> Display OLED detectado!");
+      } else {
+        Serial.println();
+      }
+      ++encontrados;
+    }
+  }
+  if (encontrados == 0) {
+    Serial.println("# [ALERTA] Nenhum dispositivo I2C respondeu no barramento!");
+    Serial.println("# Possiveis causas fisicas:");
+    Serial.println("# 1) Fios SDA (GPIO 21) e SCL (GPIO 22) invertidos no modulo AHT10.");
+    Serial.println("# 2) Falta de alimentacao no sensor (conferir pinos VCC 3.3V e GND).");
+    Serial.println("# 3) Mau contato ou fios partidos no chicote de 4 vias.");
+  }
+  Serial.println("# ----------------------------------------------------");
+}
+
 bool inicializarAHT10() {
+  pinMode(PINO_SDA, INPUT_PULLUP);
+  pinMode(PINO_SCL, INPUT_PULLUP);
   Wire.begin(PINO_SDA, PINO_SCL, 100000);
-  Wire.setTimeOut(25);
-  delay(100); // Espera de alimentacao apenas no setup.
-  Wire.beginTransmission(ENDERECO_AHT10);
-  Wire.write(0xBA); // Reset do AHT10.
-  if (Wire.endTransmission() != 0) return false;
-  delay(20);
-  Wire.beginTransmission(ENDERECO_AHT10);
+  Wire.setTimeOut(50);
+  delay(40);
+
+  // Testa endereco 0x38 e 0x39
+  Wire.beginTransmission(enderecoAHT);
+  if (Wire.endTransmission() != 0) {
+    Wire.beginTransmission(0x39);
+    if (Wire.endTransmission() == 0) {
+      enderecoAHT = 0x39;
+    } else {
+      Wire.beginTransmission(0x38);
+      if (Wire.endTransmission() == 0) {
+        enderecoAHT = 0x38;
+      } else {
+        return false; // Nao respondeu nem em 0x38 nem em 0x39
+      }
+    }
+  }
+
+  // Soft Reset (0xBA)
+  Wire.beginTransmission(enderecoAHT);
+  Wire.write(0xBA);
+  Wire.endTransmission();
+  delay(30);
+
+  // Inicializacao/Calibracao compativel com AHT10 (0xE1) e AHT20 (0xBE)
+  Wire.beginTransmission(enderecoAHT);
   Wire.write(0xE1);
   Wire.write(0x08);
   Wire.write(0x00);
-  if (Wire.endTransmission() != 0) return false;
-  delay(50);
+  Wire.endTransmission();
+  delay(20);
+
+  Wire.beginTransmission(enderecoAHT);
+  Wire.write(0xBE);
+  Wire.write(0x08);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  delay(30);
+
+  // Aguarda sensor sair de ocupado (bit 7 = 0)
   uint32_t inicio = millis();
-  do {
-    if (Wire.requestFrom(ENDERECO_AHT10, size_t(1)) != 1) return false;
-    uint8_t status = uint8_t(Wire.read());
-    if (!(status & 0x80)) return (status & 0x08) != 0;
-    delay(5);
-  } while (uint32_t(millis() - inicio) < LIMITE_AHT_MS);
-  return false;
+  while (uint32_t(millis() - inicio) < LIMITE_AHT_MS) {
+    if (Wire.requestFrom(enderecoAHT, size_t(1)) == 1) {
+      uint8_t status = uint8_t(Wire.read());
+      if (!(status & 0x80)) {
+        return true;
+      }
+    }
+    delay(10);
+  }
+  return true;
 }
 
 void atualizarAHT10() {
-  if (!ahtInicializado) return;
   uint32_t agora = millis();
+
+  // Auto-recuperacao: tenta reconectar a cada 3s se nao detectado inicialmente
+  if (!ahtInicializado) {
+    if (uint32_t(agora - ultimoDisparoAHT) >= 3000) {
+      ultimoDisparoAHT = agora;
+      ahtInicializado = inicializarAHT10();
+      if (ahtInicializado) {
+        erroAHT = 0;
+        Serial.println("# AHT10/AHT20: Conexao estabelecida com sucesso!");
+      }
+    }
+    return;
+  }
+
   if (!ahtConvertendo) {
     if (uint32_t(agora - ultimoDisparoAHT) < PERIODO_AHT_MS) return;
     ultimoDisparoAHT = agora;
-    Wire.beginTransmission(ENDERECO_AHT10);
+    Wire.beginTransmission(enderecoAHT);
     Wire.write(0xAC);
     Wire.write(0x33);
     Wire.write(0x00);
     if (Wire.endTransmission() != 0) {
       invalidarAHT(2);
+      ahtInicializado = false; // Se desconectou, reativa busca automatica
       return;
     }
     ahtConvertendo = true;
     ultimaConsultaAHT = agora;
     return;
   }
+
   uint32_t espera = uint32_t(agora - ultimoDisparoAHT);
   if (espera < CONVERSAO_AHT_MS || uint32_t(agora - ultimaConsultaAHT) < 10) return;
   ultimaConsultaAHT = agora;
-  if (Wire.requestFrom(ENDERECO_AHT10, size_t(6)) != 6) {
+
+  if (Wire.requestFrom(enderecoAHT, size_t(6)) != 6) {
     invalidarAHT(3);
     return;
   }
+
   uint8_t dados[6];
   for (uint8_t i = 0; i < 6; ++i) dados[i] = uint8_t(Wire.read());
+
+  // Se o chip ainda sinalizar ocupado, aguarda a proxima consulta
   if (dados[0] & 0x80) {
     if (espera >= LIMITE_AHT_MS) invalidarAHT(4);
     return;
   }
-  if (!(dados[0] & 0x08)) {
-    invalidarAHT(5);
-    return;
-  }
+
   uint32_t rawRH = (uint32_t(dados[1]) << 12) |
                    (uint32_t(dados[2]) << 4) | (uint32_t(dados[3]) >> 4);
   uint32_t rawT = (uint32_t(dados[3] & 0x0F) << 16) |
                   (uint32_t(dados[4]) << 8) | uint32_t(dados[5]);
-  umidadeRH = float(rawRH) * 100.0f / 1048576.0f;
-  temperaturaC = float(rawT) * 200.0f / 1048576.0f - 50.0f;
-  ahtValido = true;
-  erroAHT = 0;
-  ahtConvertendo = false;
+
+  float hum = float(rawRH) * 100.0f / 1048576.0f;
+  float temp = float(rawT) * 200.0f / 1048576.0f - 50.0f;
+
+  if (hum >= 0.0f && hum <= 100.0f && temp >= -20.0f && temp <= 85.0f) {
+    umidadeRH = hum;
+    temperaturaC = temp;
+    ahtValido = true;
+    erroAHT = 0;
+    ahtConvertendo = false;
+  } else {
+    invalidarAHT(5);
+  }
 }
 
 void lerFSRs() {
@@ -151,6 +248,17 @@ void lerFSRs() {
     historico[i][indiceFiltro] = adcBruto[i];
     somas[i] += adcBruto[i];
     adcMedia[i] = somas[i] / quantidadeFiltro;
+
+#if HABILITAR_TARA
+    if (taraConcluida) {
+      int liq = adcMedia[i] - adcTara[i];
+      adcLiquido[i] = (liq > 0) ? liq : 0;
+    } else {
+      adcLiquido[i] = adcMedia[i];
+    }
+#else
+    adcLiquido[i] = adcMedia[i];
+#endif
   }
   indiceFiltro = (indiceFiltro + 1) % NUM_AMOSTRAS;
 }
@@ -195,9 +303,11 @@ void inicializarBLE() {
 }
 
 void publicarBLE(uint32_t agora) {
-  String pacote = "{\"calcaneo\":" + String(adcMedia[0]) +
-                  ",\"meta1\":" + String(adcMedia[1]) +
-                  ",\"meta5\":" + String(adcMedia[2]) +
+  String pacote = "{\"calcaneo\":" + String(adcLiquido[0]) +
+                  ",\"meta1\":" + String(adcLiquido[1]) +
+                  ",\"meta5\":" + String(adcLiquido[2]) +
+                  ",\"calc_raw\":" + String(adcMedia[0]) +
+                  ",\"tara_calc\":" + String(adcTara[0]) +
                   ",\"temp\":" + (ahtValido ? String(temperaturaC, 1) : String("null")) +
                   ",\"umid\":" + (ahtValido ? String(umidadeRH, 1) : String("null")) +
                   ",\"seq\":" + String(sequencia) + ",\"t_ms\":" + String(agora) + "}";
@@ -228,13 +338,36 @@ void setup() {
     pinMode(PINOS_FSR[i], INPUT);
     analogSetPinAttenuation(PINOS_FSR[i], ADC_11db);
   }
+
+#if HABILITAR_TARA
+  Serial.println("# Calibrando linha de base (Tara em repouso)... Aguarde sem carga.");
+  delay(150);
+  for (int amostra = 0; amostra < 20; ++amostra) {
+    lerFSRs();
+    delay(30);
+  }
+  for (uint8_t i = 0; i < 3; ++i) {
+    adcTara[i] = adcMedia[i];
+  }
+  taraConcluida = true;
+  Serial.print("# Tara em repouso fixada -> Calcaneo: ");
+  Serial.print(adcTara[0]);
+  Serial.print(" ADC | M1: ");
+  Serial.print(adcTara[1]);
+  Serial.print(" ADC | M5: ");
+  Serial.print(adcTara[2]);
+  Serial.println(" ADC");
+#endif
+
+  escanearBarramentoI2C();
   ahtInicializado = inicializarAHT10();
   if (ahtInicializado) {
     erroAHT = 0;
-    Serial.println("# AHT10: calibracao habilitada; aguardando primeira medicao.");
+    Serial.print("# AHT10/AHT20: Calibrado com sucesso no endereco 0x");
+    Serial.println(enderecoAHT, HEX);
   } else {
     invalidarAHT(1);
-    Serial.println("# AHT10: falha de inicializacao; ambiente=NA. Conferir I2C e reiniciar.");
+    Serial.println("# AHT10/AHT20: Falha no boot; ambiente=NA. O firmware tentara reconectar automaticamente a cada 3s.");
   }
 #if HABILITAR_BLE
   inicializarBLE();

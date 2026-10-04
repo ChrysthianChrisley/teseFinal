@@ -1171,3 +1171,294 @@ input:checked + .slider::before {
   font-size: 0.76rem;
   color: var(--text-subtle);
 }
+
+/* ==========================================================================
+   OTIMIZAÇÃO MOBILE: COMPORTAMENTO DE ROLAGEM E VISUALIZAÇÃO DE DADOS
+   ========================================================================== */
+
+@media (max-width: 850px) {
+  /* 1. CABEÇALHO COMPACTO E STICKY */
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding: 8px 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+  }
+
+  .header-container {
+    gap: 8px;
+    justify-content: space-between;
+  }
+
+  .brand-box {
+    gap: 8px;
+  }
+
+  .brand-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+  }
+
+  .brand-title {
+    font-size: 0.95rem;
+  }
+
+  .brand-sub {
+    display: none; /* Oculta subtítulo longo no celular */
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .connection-status-pill {
+    padding: 4px 10px;
+    font-size: 0.74rem;
+  }
+
+  .btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    height: 36px;
+  }
+
+  /* 2. OCULTAR CABEÇALHO / TÍTULOS / MODAL AO ROLAR PARA BAIXO */
+  body.mobile-scrolled .app-header {
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  body.mobile-scrolled .mode-bar {
+    max-height: 0;
+    padding: 0;
+    margin: 0;
+    opacity: 0;
+    overflow: hidden;
+    border: none;
+    transition: all 0.25s ease;
+  }
+
+  /* Oculta o "modal do título" (card-hero-status) e avisos ao rolar para baixo */
+  body.mobile-scrolled #card-hero-status,
+  body.mobile-scrolled .mode-bar {
+    display: none !important;
+  }
+
+  /* Quando conectado, oculta completamente o modal de título para destacar apenas os dados recebidos */
+  body.is-connected #card-hero-status {
+    display: none !important;
+  }
+
+  /* 3. LAYOUT PRINCIPAL OTIMIZADO PARA TELAS PEQUENAS */
+  .main-content {
+    padding: 10px 10px 32px;
+    gap: 12px;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: var(--radius-md);
+  }
+
+  .card-header-clean {
+    margin-bottom: 10px;
+  }
+
+  .card-title {
+    font-size: 1.05rem;
+  }
+
+  .card-subtitle {
+    font-size: 0.74rem;
+  }
+
+  /* 4. MAPA PLANTAR NO CELULAR */
+  .grid-plantar {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .card-foot-map {
+    padding: 12px 10px 10px;
+  }
+
+  .foot-visual-wrapper {
+    padding: 4px 0 10px;
+  }
+
+  .foot-visual-container {
+    width: 190px;
+    height: 285px; /* Proporção ideal para visualização completa no celular */
+  }
+
+  .zone-tooltip {
+    display: none; /* Tooltip por hover não se aplica bem no toque do celular */
+  }
+
+  .heat-zone {
+    width: 44px;
+    height: 44px;
+    margin-left: -22px;
+    margin-top: -22px;
+  }
+
+  .heat-core {
+    width: 30px;
+    height: 30px;
+  }
+
+  .zone-tag {
+    font-size: 0.70rem;
+  }
+
+  .clinical-legend {
+    padding-top: 8px;
+    gap: 12px;
+    font-size: 0.74rem;
+  }
+
+  /* 5. CARDS DE PRESSÃO INDIVIDUAL */
+  .pressure-list {
+    gap: 10px;
+  }
+
+  .pressure-card {
+    padding: 10px 12px;
+    border-radius: 10px;
+  }
+
+  .pressure-card-header {
+    margin-bottom: 6px;
+  }
+
+  .zone-identity {
+    gap: 8px;
+  }
+
+  .zone-bullet {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+  }
+
+  .zone-name {
+    font-size: 0.88rem;
+  }
+
+  .zone-role {
+    font-size: 0.70rem;
+    line-height: 1.2;
+  }
+
+  .zone-value-badge {
+    font-size: 0.88rem;
+    padding: 3px 8px;
+    min-width: 75px;
+    text-align: center;
+  }
+
+  .meter-bar-container {
+    height: 9px;
+    margin-bottom: 4px;
+  }
+
+  .meter-meta {
+    font-size: 0.70rem;
+  }
+
+  /* 6. CLIMA / MICROCLIMA LADO A LADO NO CELULAR */
+  .grid-climate {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .climate-card {
+    padding: 12px 10px;
+  }
+
+  .climate-icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .climate-title {
+    font-size: 0.82rem;
+  }
+
+  .climate-val {
+    font-size: 1.45rem;
+  }
+
+  .climate-desc {
+    font-size: 0.70rem;
+    line-height: 1.2;
+  }
+
+  /* 7. ORIENTAÇÕES E RODAPÉ */
+  .guidance-cards {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .guide-item {
+    padding: 10px 12px;
+    font-size: 0.78rem;
+  }
+
+  .accordion-details summary {
+    padding: 14px 16px;
+    font-size: 0.9rem;
+  }
+
+  .accordion-content {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .thresholds-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .app-footer {
+    padding: 14px 12px;
+  }
+
+  .footer-container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 420px) {
+  .header-actions {
+    width: 100%;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+
+  .btn {
+    padding: 5px 8px;
+    font-size: 0.76rem;
+  }
+  
+  .grid-climate {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .climate-card {
+    padding: 10px 8px;
+  }
+
+  .climate-val {
+    font-size: 1.3rem;
+  }
+}

@@ -565,51 +565,31 @@ btnTare?.addEventListener('click', () => {
 function setConnectionState(type, isConnected) {
   state.connectionType = isConnected ? type : 'none';
   state.isConnected = isConnected;
+  document.body.classList.toggle('is-connected', isConnected);
 
   const pill = document.getElementById('conn-pill');
   const label = document.getElementById('conn-label');
   const btnBleText = document.getElementById('btn-ble-text');
-  const btnSerialText = document.getElementById('btn-serial-text');
 
   if (isConnected) {
     pill.classList.add('connected');
-    if (type === 'ble') {
-      label.textContent = 'Conectado via BLE (Sem Fio)';
-      btnBle.classList.add('active-connected');
-      btnBleText.textContent = 'Desconectar BLE';
-      if (btnSerial) btnSerial.disabled = true;
-    } else if (type === 'serial') {
-      label.textContent = 'Conectado via Cabo USB (115200)';
-      if (btnSerial) btnSerial.classList.add('active-connected');
-      if (btnSerialText) btnSerialText.textContent = 'Desconectar USB';
-      btnBle.disabled = true;
-    }
+    label.textContent = 'BLE Conectado';
+    btnBle.classList.add('active-connected');
+    btnBleText.textContent = 'Desconectar BLE';
 
-    // Assim que a conexão for estabelecida, desabilita a mensagem de espera inicial
+    // Assim que a conexão for estabelecida, oculta a mensagem de espera inicial
     const card = document.getElementById('card-hero-status');
-    const icon = document.getElementById('hero-status-icon');
-    const tag = document.getElementById('hero-status-tag');
-    const title = document.getElementById('hero-status-title');
-    const desc = document.getElementById('hero-status-desc');
-
-    if (card) card.className = 'card card-hero-status status-ok';
-    if (icon) icon.textContent = '🛡️';
-    if (tag) tag.textContent = 'Monitoramento Ativo';
-    if (title) title.textContent = 'Palmilha Conectada';
-    if (desc) desc.textContent = 'Transmissão em tempo real iniciada. Aguardando primeiras leituras dos sensores.';
+    if (card) card.style.display = 'none';
   } else {
     pill.classList.remove('connected');
     label.textContent = 'Desconectado';
     btnBle.classList.remove('active-connected');
     btnBle.disabled = false;
     btnBleText.textContent = 'Conectar BLE';
-    if (btnSerial) {
-      btnSerial.classList.remove('active-connected');
-      btnSerial.disabled = false;
-      if (btnSerialText) btnSerialText.textContent = 'Cabo USB';
-    }
 
     // Reabilita mensagem de aguardando dispositivo
+    const card = document.getElementById('card-hero-status');
+    if (card) card.style.display = '';
     renderInitialState();
   }
 }
@@ -656,6 +636,59 @@ function renderInitialState() {
   if (title) title.textContent = 'Pronto para monitoramento';
   if (desc) desc.textContent = 'Conecte a palmilha via Bluetooth (BLE) acima para iniciar a leitura dos sensores em tempo real.';
 }
+
+// ── CONTROLE INTELIGENTE DE ROLAGEM NO CELULAR (AUTO-OCULTAR TÍTULO / MODAL) ─
+let lastScrollY = window.scrollY;
+let scrollTicking = false;
+
+function updateMobileScrollState() {
+  const currentScrollY = window.scrollY;
+  const isMobile = window.innerWidth <= 850;
+
+  if (isMobile) {
+    if (currentScrollY > 25 && currentScrollY > lastScrollY) {
+      // Arrastando / rolando para BAIXO: esconde cabeçalho, aviso e modal de título
+      document.body.classList.add('mobile-scrolled');
+    } else if (currentScrollY < lastScrollY - 20 || currentScrollY <= 15) {
+      // Rolando para CIMA ou retornando ao topo: restaura suavemente
+      document.body.classList.remove('mobile-scrolled');
+    }
+  } else {
+    document.body.classList.remove('mobile-scrolled');
+  }
+
+  lastScrollY = currentScrollY;
+}
+
+window.addEventListener('scroll', () => {
+  if (!scrollTicking) {
+    window.requestAnimationFrame(() => {
+      updateMobileScrollState();
+      scrollTicking = false;
+    });
+    scrollTicking = true;
+  }
+}, { passive: true });
+
+// Suporte a gesto de toque para resposta imediata ao arrastar no celular
+let touchStartY = 0;
+window.addEventListener('touchstart', (e) => {
+  if (e.touches && e.touches[0]) {
+    touchStartY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+window.addEventListener('touchmove', (e) => {
+  if (window.innerWidth <= 850 && e.touches && e.touches[0]) {
+    const touchY = e.touches[0].clientY;
+    const deltaY = touchStartY - touchY; // Positivo = arrastando para cima / descendo página
+    if (deltaY > 15 && window.scrollY > 20) {
+      document.body.classList.add('mobile-scrolled');
+    } else if (deltaY < -25 && window.scrollY <= 20) {
+      document.body.classList.remove('mobile-scrolled');
+    }
+  }
+}, { passive: true });
 
 window.addEventListener('DOMContentLoaded', () => {
   renderInitialState();
