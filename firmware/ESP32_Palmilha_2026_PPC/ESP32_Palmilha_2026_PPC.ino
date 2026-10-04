@@ -340,9 +340,9 @@ void setup() {
   }
 
 #if HABILITAR_TARA
-  Serial.println("# Calibrando linha de base (Tara em repouso)... Aguarde sem carga.");
-  delay(150);
-  for (int amostra = 0; amostra < 20; ++amostra) {
+  Serial.println("# [BOOT] Calibrando linha de base automatica em repouso... Mantenha a palmilha sem carga.");
+  delay(250);
+  for (int amostra = 0; amostra < 30; ++amostra) {
     lerFSRs();
     delay(30);
   }
@@ -350,7 +350,7 @@ void setup() {
     adcTara[i] = adcMedia[i];
   }
   taraConcluida = true;
-  Serial.print("# Tara em repouso fixada -> Calcaneo: ");
+  Serial.print("# [BOOT CALIBRADO] Linha de base automatica fixada -> Calcaneo: ");
   Serial.print(adcTara[0]);
   Serial.print(" ADC | M1: ");
   Serial.print(adcTara[1]);
