@@ -2,14 +2,11 @@
   Palmilha Instrumentada - Monitoramento Plantar Preventivo (2026)
   Mestrado Profissional em Telessaude e Saude Digital (PPGTS / UERJ)
   
-  Mapeamento de Hardware Atualizado:
-    - Calcaneo (FSR1): GPIO 36 (Sensor VP) -> Pino 2 do conector de 8 vias
-    - 1º Metatarso / M1 (FSR2): GPIO 33   -> Pino 4 do conector de 8 vias
-    - 5º Metatarso / M5 (FSR3): GPIO 39 (Sensor VN) -> Pino 3 conectado no Pino 4
-    - Sensor AHT10: REMOVIDO do circuito fisico.
-    - LED Status / Bateria: GPIO 5 (Heartbeat quando desconectado; fixo ao conectar BLE)
-    - ADC: Canais 36, 33 e 39 pertencem ao ADC1 (100% compativel com RF BLE)
-    - Compensacao PGA Digital: Ganho configuravel por canal para calibracao com pesos padrao.
+  Mapeamento de Hardware:
+    - Calcaneo (FSR1): GPIO 36 (Sensor VP) -> Atenuacao ADC_0db
+    - 1º Metatarso / M1 (FSR2): GPIO 33   -> Atenuacao ADC_11db
+    - 5º Metatarso / M5 (FSR3): GPIO 39 (Sensor VN) -> Atenuacao ADC_11db
+    - Saida Serial amigavel a cada 500ms para facilitar a leitura humana.
 */
 
 #include <Arduino.h>
@@ -33,17 +30,14 @@ uint32_t ultimoAvisoMTU  = 0;
 #endif
 
 // ── MAPEAMENTO DOS PINOS FSR (TODOS NO ADC1) ─────────────────────────────────
-// [0]=Calcaneo (VP/GPIO 36), [1]=M1 (GPIO 33), [2]=M5 (VN/GPIO 39)
 const uint8_t PINOS_FSR[3] = {36, 33, 39};
 
 // ── FATORES DE CALIBRACAO E GANHO (PGA DIGITAL) ─────────────────────────────
-// Permite equiparar a resposta dos 3 sensores com o mesmo peso de teste.
-// [0] = Calcaneo (GPIO 36) | [1] = M1 (GPIO 33) | [2] = M5 (GPIO 39)
 float GANHOS_FSR[3] = {10.0f, 1.0f, 1.0f};
 
 // ── INDICADOR DE STATUS / ALIMENTACAO (BATERIA) ──────────────────────────────
-const uint8_t PINO_LED_STATUS = 5; // LED onboard LOLIN32 V1.0.0 (GPIO 5) / ou externo
-const uint8_t LED_ON  = LOW;       // Ativo em LOW na LOLIN32 (ou HIGH p/ LED externo com resistor ao GND)
+const uint8_t PINO_LED_STATUS = 5;
+const uint8_t LED_ON  = LOW;
 const uint8_t LED_OFF = HIGH;
 
 // ── PARAMETROS DO FILTRO E AMOSTRAGEM ────────────────────────────────────────
@@ -73,13 +67,11 @@ void atualizarLedStatus() {
 #if HABILITAR_BLE
   bool conectado = (servidorBLE && servidorBLE->getConnectedCount() > 0);
   if (conectado) {
-    digitalWrite(PINO_LED_STATUS, LED_ON); // Conectado via BLE: aceso fixo
+    digitalWrite(PINO_LED_STATUS, LED_ON);
     return;
   }
 #endif
 
-  // Desconectado (ligado na bateria e aguardando conexao BLE):
-  // Heartbeat intermitente: 100ms aceso a cada 1s (indica ligado economizando bateria)
   uint32_t intervalo = ligado ? 100 : 900;
   if (uint32_t(agora - ultimoPisca) >= intervalo) {
     ultimoPisca = agora;
@@ -94,18 +86,15 @@ void lerFSRs() {
     adcBruto[i] = analogRead(PINOS_FSR[i]);
     milivolts[i] = analogReadMilliVolts(PINOS_FSR[i]);
     
-    // Filtro de media movel (10 amostras)
     somas[i] -= historico[i][indiceFiltro];
     historico[i][indiceFiltro] = adcBruto[i];
     somas[i] += adcBruto[i];
     adcMedia[i] = somas[i] / quantidadeFiltro;
 
-    // Calculo do sinal liquido com desconto da pre-carga/repouso e ganho PGA
     if (taraConcluida) {
       int liq = adcMedia[i] - adcTara[i];
       if (liq < 0) liq = 0;
       
-      // Aplica o fator de calibracao / equiparacao
       float liqEscalado = (float)liq * GANHOS_FSR[i];
       adcLiquido[i] = (int)constrain(liqEscalado, 0.0f, 4095.0f);
     } else {
@@ -115,19 +104,26 @@ void lerFSRs() {
   indiceFiltro = (indiceFiltro + 1) % NUM_AMOSTRAS;
 }
 
-void imprimirCSV(uint32_t agora, uint32_t intervalo) {
-  Serial.print(agora);
-  Serial.print(',');
-  Serial.print(intervalo);
-  Serial.print(',');
-  Serial.print(sequencia);
-  for (uint8_t i = 0; i < 3; ++i) {
-    Serial.print(','); Serial.print(adcBruto[i]);
-    Serial.print(','); Serial.print(adcMedia[i]);
-    Serial.print(','); Serial.print(adcLiquido[i]);
-    Serial.print(','); Serial.print(milivolts[i]);
-  }
-  Serial.println();
+// Imprime formato legivel e calmo a cada 500ms para facilitar a visao humana
+void imprimirSerialAmigavel() {
+  Serial.print("[PAINEL] CALCANEO -> Liq: ");
+  Serial.print(adcLiquido[0]);
+  Serial.print(" | Bruto: ");
+  Serial.print(adcMedia[0]);
+  Serial.print(" | Tara: ");
+  Serial.print(adcTara[0]);
+
+  Serial.print("  ||  M1 -> Liq: ");
+  Serial.print(adcLiquido[1]);
+  Serial.print(" (Bruto: ");
+  Serial.print(adcMedia[1]);
+  Serial.print(")");
+
+  Serial.print("  ||  M5 -> Liq: ");
+  Serial.print(adcLiquido[2]);
+  Serial.print(" (Bruto: ");
+  Serial.print(adcMedia[2]);
+  Serial.println(")");
 }
 
 #if HABILITAR_BLE
@@ -163,13 +159,7 @@ void publicarBLE(uint32_t agora) {
   caracteristicaBLE->setValue(pacote.c_str());
   if (servidorBLE->getConnectedCount() != 1) return;
   uint16_t mtu = servidorBLE->getPeerMTU(servidorBLE->getConnId());
-  if (mtu < 3 || pacote.length() > size_t(mtu - 3)) {
-    if (uint32_t(agora - ultimoAvisoMTU) >= 5000) {
-      Serial.println("# BLE: MTU do cliente insuficiente; notificacao nao enviada.");
-      ultimoAvisoMTU = agora;
-    }
-    return;
-  }
+  if (mtu < 3 || pacote.length() > size_t(mtu - 3)) return;
   caracteristicaBLE->notify();
 }
 #endif
@@ -177,41 +167,26 @@ void publicarBLE(uint32_t agora) {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("# =========================================================");
-  Serial.println("# Palmilha Instrumentada - Calibracao & Equiparacao 2026");
-  Serial.println("# Mapeamento FSR:");
-  Serial.println("#   - Calcaneo: GPIO 36 (VP)  -> Atenuacao: ADC_0db (Alta Sensibilidade)");
-  Serial.println("#   - M1:       GPIO 33       -> Atenuacao: ADC_11db");
-  Serial.println("#   - M5:       GPIO 39 (VN)  -> Atenuacao: ADC_11db");
-  Serial.print("# Ganhos de Calibracao: Calcaneo=");
-  Serial.print(GANHOS_FSR[0], 1);
-  Serial.print("x | M1=");
-  Serial.print(GANHOS_FSR[1], 1);
-  Serial.print("x | M5=");
-  Serial.print(GANHOS_FSR[2], 1);
-  Serial.println("x");
+  Serial.println("\n# =========================================================");
+  Serial.println("# Monitor Plantar 2026 - Modo Visual Amigavel");
+  Serial.println("# A impressao abaixo ocorre 2x por segundo para facil leitura");
   Serial.println("# =========================================================");
 
   analogReadResolution(12);
 
-  // Calcaneo (GPIO 36): Atenuacao 0 dB (escala 0-1.1V) para amplificar sinais fracos
   pinMode(PINOS_FSR[0], INPUT);
   analogSetPinAttenuation(PINOS_FSR[0], ADC_0db);
 
-  // M1 (GPIO 33): Atenuacao 11 dB (escala normal 0-3.3V)
   pinMode(PINOS_FSR[1], INPUT);
   analogSetPinAttenuation(PINOS_FSR[1], ADC_11db);
 
-  // M5 (GPIO 39): Atenuacao 11 dB (escala normal 0-3.3V)
   pinMode(PINOS_FSR[2], INPUT);
   analogSetPinAttenuation(PINOS_FSR[2], ADC_11db);
 
-  // Inicializa LED indicador de bateria
   pinMode(PINO_LED_STATUS, OUTPUT);
   digitalWrite(PINO_LED_STATUS, LED_ON);
 
-  // Calibracao automatica de repouso (tara)
-  Serial.println("# [BOOT] Calibrando tara automatica de repouso... Palmilha descarregada.");
+  Serial.println("# [BOOT] Calibrando tara em repouso... Mantenha a palmilha descarregada.");
   delay(300);
   for (int amostra = 0; amostra < 30; ++amostra) {
     lerFSRs();
@@ -221,23 +196,19 @@ void setup() {
     adcTara[i] = adcMedia[i];
   }
   taraConcluida = true;
-  Serial.print("# [BOOT CALIBRADO] Linha de base -> Calcaneo: ");
+  Serial.print("# [BOOT CONCLUIDO] Taras iniciais -> Calc: ");
   Serial.print(adcTara[0]);
-  Serial.print(" ADC | M1: ");
+  Serial.print(" | M1: ");
   Serial.print(adcTara[1]);
-  Serial.print(" ADC | M5: ");
+  Serial.print(" | M5: ");
   Serial.print(adcTara[2]);
-  Serial.println(" ADC");
+  Serial.println("\n");
 
 #if HABILITAR_BLE
   inicializarBLE();
-  Serial.println("# BLE pronto: Palmilha_v5.0 aguardando conexao...");
-#else
-  Serial.println("# Modo Serial ativado (BLE desabilitado).");
 #endif
 
   ultimaAmostra = millis();
-  Serial.println("t_ms,dt_ms,seq,calc_raw,calc_media,calc_liq,calc_mV,m1_raw,m1_media,m1_liq,m1_mV,m5_raw,m5_media,m5_liq,m5_mV");
 }
 
 void loop() {
@@ -249,10 +220,16 @@ void loop() {
     ultimaAmostra = agora;
     ++sequencia;
     lerFSRs();
-    imprimirCSV(agora, intervalo);
 #if HABILITAR_BLE
     publicarBLE(agora);
 #endif
+
+    // Imprime na Serial com calma a cada 500 ms (2 linhas por segundo)
+    static uint32_t ultimoPrint = 0;
+    if (uint32_t(agora - ultimoPrint) >= 500) {
+      ultimoPrint = agora;
+      imprimirSerialAmigavel();
+    }
   }
   delay(1);
 }
