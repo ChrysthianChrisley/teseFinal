@@ -25,8 +25,72 @@ const state = {
   environment: {
     temp: null,
     umid: null
-  }
+  },
+  tare: {
+    m1: 0,
+    m5: 0,
+    calc: 0
+  },
+  lastRaw: {
+    m1: 0,
+    m5: 0,
+    calc: 0
+  },
+  lastData: null,
+  tareActive: false,
+  autoTaredOnce: false
 };
+
+// ── FUNÇÕES DE GESTÃO DA TARA (LINHA DE BASE DE REPOUSO) ──────────────────
+function applyTare() {
+  state.tare.m1 = state.lastRaw.m1 || 0;
+  state.tare.m5 = state.lastRaw.m5 || 0;
+  state.tare.calc = state.lastRaw.calc || 0;
+  state.tareActive = (state.tare.calc > 0 || state.tare.m1 > 0 || state.tare.m5 > 0);
+  updateTareUI();
+  if (state.lastData) {
+    render(state.lastData);
+  }
+}
+
+function resetTare() {
+  state.tare.m1 = 0;
+  state.tare.m5 = 0;
+  state.tare.calc = 0;
+  state.tareActive = false;
+  updateTareUI();
+  if (state.lastData) {
+    render(state.lastData);
+  }
+}
+
+function updateTareUI() {
+  const badgeTare = document.getElementById('badge-tare');
+  const btnTareText = document.getElementById('btn-tare-text');
+  const btnTare = document.getElementById('btn-tare');
+  if (state.tareActive) {
+    if (badgeTare) {
+      badgeTare.style.display = 'inline-flex';
+      badgeTare.textContent = `⚖️ Tara Ativa (Calc: ${state.tare.calc} ADC)`;
+    }
+    if (btnTareText) {
+      btnTareText.textContent = 'Retirar Tara';
+    }
+    if (btnTare) {
+      btnTare.classList.add('active-connected');
+    }
+  } else {
+    if (badgeTare) {
+      badgeTare.style.display = 'none';
+    }
+    if (btnTareText) {
+      btnTareText.textContent = 'Zerar Tara';
+    }
+    if (btnTare) {
+      btnTare.classList.remove('active-connected');
+    }
+  }
+}
 
 // ── OBTENÇÃO DINÂMICA DOS LIMIARES CONFIGURADOS ───────────────────────────
 function getThresholds() {
@@ -47,6 +111,27 @@ function getRiskLevel(value, warnThresh, dangerThresh) {
 
 // ── ATUALIZAÇÃO VISUAL COMPLETA DA INTERFACE (RENDER) ─────────────────────
 function render(data) {
+  state.lastData = data;
+  state.lastRaw = {
+    m1: data.meta1 ?? 0,
+    m5: data.meta5 ?? 0,
+    calc: data.calcaneo ?? 0
+  };
+
+  // Se o calcanhar começar com valor residual alto (> 2000 ADC) e metatarsos em repouso (< 500 ADC),
+  // aplica auto-tara inicial automaticamente para calibrar a linha de base
+  if (!state.autoTaredOnce && state.isConnected) {
+    state.autoTaredOnce = true;
+    if (state.lastRaw.calc > 2000 && state.lastRaw.m1 < 500 && state.lastRaw.m5 < 500) {
+      state.tare.calc = state.lastRaw.calc;
+      state.tare.m1 = state.lastRaw.m1;
+      state.tare.m5 = state.lastRaw.m5;
+      state.tareActive = true;
+      updateTareUI();
+      console.log(`[Auto-Tara] Linha de base de repouso compensada no Calcanhar: ${state.tare.calc} ADC`);
+    }
+  }
+
   const thresh = getThresholds();
   let globalWorstLevel = 'ok';
   const activeAlerts = [];
@@ -61,8 +146,17 @@ function render(data) {
 
   zones.forEach(z => {
     const rawVal = Math.max(0, Math.min(4095, Math.round(z.raw)));
-    const pct = Math.min(100, Math.round((rawVal / 4095) * 100));
-    const lv = getRiskLevel(rawVal, thresh.pressWarn, thresh.pressDanger);
+    const tareVal = state.tare[z.id] || 0;
+    
+    // Valor líquido efetivo (descontando o repouso tarado)
+    const netVal = Math.max(0, rawVal - tareVal);
+    const dynamicSpan = Math.max(200, 4095 - tareVal);
+    const pct = Math.min(100, Math.round((netVal / dynamicSpan) * 100));
+
+    // Limiares escalonados pela faixa dinâmica útil restante
+    const relWarn = Math.round((thresh.pressWarn / 4095) * dynamicSpan);
+    const relDanger = Math.round((thresh.pressDanger / 4095) * dynamicSpan);
+    const lv = getRiskLevel(netVal, relWarn, relDanger);
 
     if (lv === 'danger') globalWorstLevel = 'danger';
     else if (lv === 'warn' && globalWorstLevel !== 'danger') globalWorstLevel = 'warn';
@@ -72,7 +166,7 @@ function render(data) {
         type: 'pressure',
         zone: z.label,
         level: lv,
-        msg: `${z.label}: Sobrecarga detectada (${rawVal} ADC · ${pct}%)`
+        msg: `${z.label}: Sobrecarga detectada (${netVal} ADC líq. · ${pct}%)`
       });
     }
 
@@ -81,6 +175,7 @@ function render(data) {
     const badge = document.getElementById(`val-badge-${z.id}`);
     const intensity = document.getElementById(`intensity-${z.id}`);
     const cardEl = document.getElementById(`card-pz-${z.id}`);
+    const metaRaw = document.getElementById(`meta-raw-${z.id}`);
 
     if (meter) {
       meter.style.width = `${pct}%`;
@@ -88,13 +183,23 @@ function render(data) {
     }
 
     if (badge) {
-      badge.textContent = `${rawVal} ADC`;
+      if (tareVal > 0) {
+        badge.innerHTML = `${netVal} ADC <span style="font-size:0.75rem; font-weight:normal; opacity:0.8;">(${rawVal} bruto)</span>`;
+      } else {
+        badge.textContent = `${rawVal} ADC`;
+      }
       badge.style.color = lv === 'ok' ? 'var(--text-main)' : (lv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
     }
 
     if (intensity) {
       const desc = lv === 'ok' ? 'Carga baixa/adequada' : (lv === 'warn' ? 'Carga pontual moderada' : 'Sobrecarga de pressão');
       intensity.textContent = `${desc} (~${pct}%)`;
+    }
+
+    if (metaRaw && tareVal > 0) {
+      metaRaw.textContent = `Pino: ${z.pin} · Tara: ${tareVal} ADC`;
+    } else if (metaRaw) {
+      metaRaw.textContent = `Pino: ${z.pin}`;
     }
 
     if (cardEl) {
@@ -109,7 +214,7 @@ function render(data) {
       heatZone.className = `heat-zone ${lv}`;
     }
     if (tooltip) {
-      tooltip.textContent = `${rawVal} ADC (${pct}%)`;
+      tooltip.textContent = tareVal > 0 ? `${netVal} ADC (${pct}%) [bruto: ${rawVal}]` : `${rawVal} ADC (${pct}%)`;
     }
   });
 
@@ -446,7 +551,16 @@ function processSerialText(chunk) {
   }
 }
 
-// ── GERENCIAMENTO DE ESTADO DE CONEXÃO E BOTÕES ───────────────────────────
+// ── BOTÃO TARAR / ZERAR LINHA DE BASE ─────────────────────────────────────
+const btnTare = document.getElementById('btn-tare');
+btnTare?.addEventListener('click', () => {
+  if (state.tareActive) {
+    resetTare();
+  } else {
+    applyTare();
+  }
+});
+
 // ── GERENCIAMENTO DE ESTADO DE CONEXÃO E BOTÕES ───────────────────────────
 function setConnectionState(type, isConnected) {
   state.connectionType = isConnected ? type : 'none';

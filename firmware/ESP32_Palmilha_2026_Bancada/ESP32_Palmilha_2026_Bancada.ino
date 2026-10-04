@@ -52,6 +52,14 @@ uint8_t quantidadeFiltro = 0;
 uint32_t ultimaAmostra = 0;
 uint32_t sequencia = 0;
 
+// ── TARA DE REPOUSO / COMPENSACAO DE PRE-CARGA MECANICA ──
+#ifndef HABILITAR_TARA
+#define HABILITAR_TARA 1
+#endif
+int adcTara[3] = {0, 0, 0};
+int adcLiquido[3] = {0, 0, 0};
+bool taraConcluida = false;
+
 bool ahtInicializado = false;
 bool ahtValido = false;
 bool ahtConvertendo = false;
@@ -151,6 +159,17 @@ void lerFSRs() {
     historico[i][indiceFiltro] = adcBruto[i];
     somas[i] += adcBruto[i];
     adcMedia[i] = somas[i] / quantidadeFiltro;
+
+#if HABILITAR_TARA
+    if (taraConcluida) {
+      int liq = adcMedia[i] - adcTara[i];
+      adcLiquido[i] = (liq > 0) ? liq : 0;
+    } else {
+      adcLiquido[i] = adcMedia[i];
+    }
+#else
+    adcLiquido[i] = adcMedia[i];
+#endif
   }
   indiceFiltro = (indiceFiltro + 1) % NUM_AMOSTRAS;
 }
@@ -195,9 +214,11 @@ void inicializarBLE() {
 }
 
 void publicarBLE(uint32_t agora) {
-  String pacote = "{\"calcaneo\":" + String(adcMedia[0]) +
-                  ",\"meta1\":" + String(adcMedia[1]) +
-                  ",\"meta5\":" + String(adcMedia[2]) +
+  String pacote = "{\"calcaneo\":" + String(adcLiquido[0]) +
+                  ",\"meta1\":" + String(adcLiquido[1]) +
+                  ",\"meta5\":" + String(adcLiquido[2]) +
+                  ",\"calc_raw\":" + String(adcMedia[0]) +
+                  ",\"tara_calc\":" + String(adcTara[0]) +
                   ",\"temp\":" + (ahtValido ? String(temperaturaC, 1) : String("null")) +
                   ",\"umid\":" + (ahtValido ? String(umidadeRH, 1) : String("null")) +
                   ",\"seq\":" + String(sequencia) + ",\"t_ms\":" + String(agora) + "}";
@@ -228,6 +249,27 @@ void setup() {
     pinMode(PINOS_FSR[i], INPUT);
     analogSetPinAttenuation(PINOS_FSR[i], ADC_11db);
   }
+
+#if HABILITAR_TARA
+  Serial.println("# Calibrando linha de base (Tara em repouso)... Aguarde sem carga.");
+  delay(150);
+  for (int amostra = 0; amostra < 20; ++amostra) {
+    lerFSRs();
+    delay(30);
+  }
+  for (uint8_t i = 0; i < 3; ++i) {
+    adcTara[i] = adcMedia[i];
+  }
+  taraConcluida = true;
+  Serial.print("# Tara em repouso fixada -> Calcaneo: ");
+  Serial.print(adcTara[0]);
+  Serial.print(" ADC | M1: ");
+  Serial.print(adcTara[1]);
+  Serial.print(" ADC | M5: ");
+  Serial.print(adcTara[2]);
+  Serial.println(" ADC");
+#endif
+
   ahtInicializado = inicializarAHT10();
   if (ahtInicializado) {
     erroAHT = 0;

@@ -318,6 +318,19 @@ input:checked + .slider::before {
   font-weight: 600;
 }
 
+.badge-tare {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
 /* ── LAYOUT PRINCIPAL ─────────────────────────────────────────────────── */
 .main-content {
   max-width: 1140px;
