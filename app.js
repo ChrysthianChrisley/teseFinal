@@ -1,0 +1,591 @@
+/* ==========================================================================
+   Monitor Plantar Inteligente — Lógica da Aplicação (app.js)
+   Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)
+   Comunicação BLE (Web Bluetooth) + Cabo USB (Web Serial) + Modo Simulação
+   ========================================================================== */
+
+'use strict';
+
+// ── UUIDs PADRÃO DO FIRMWARE BLE ──────────────────────────────────────────
+const BLE_SVC_UUID  = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
+const BLE_CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
+
+// ── ESTADO DA APLICAÇÃO ───────────────────────────────────────────────────
+const state = {
+  connectionType: 'none', // 'none' | 'ble' | 'serial'
+  bleDevice: null,
+  bleChar: null,
+  serialPort: null,
+  serialReader: null,
+  serialBuffer: '',
+  demoTimer: null,
+  demoStepCount: 0,
+  lastRenderTime: 0,
+  recentAlertCooldowns: {},
+  environment: {
+    temp: null,
+    umid: null
+  }
+};
+
+// ── OBTENÇÃO DINÂMICA DOS LIMIARES CONFIGURADOS ───────────────────────────
+function getThresholds() {
+  return {
+    pressWarn:   parseInt(document.getElementById('thresh-press-warn').value, 10)   || 2400,
+    pressDanger: parseInt(document.getElementById('thresh-press-danger').value, 10) || 3200,
+    tempMax:     parseFloat(document.getElementById('thresh-temp').value)           || 34.5,
+    umidMax:     parseFloat(document.getElementById('thresh-umid').value)           || 75.0,
+  };
+}
+
+// ── DETERMINAÇÃO DO NÍVEL DE RISCO (OK / WARN / DANGER) ───────────────────
+function getRiskLevel(value, warnThresh, dangerThresh) {
+  if (value >= dangerThresh) return 'danger';
+  if (value >= warnThresh)   return 'warn';
+  return 'ok';
+}
+
+// ── ATUALIZAÇÃO VISUAL COMPLETA DA INTERFACE (RENDER) ─────────────────────
+function render(data) {
+  const thresh = getThresholds();
+  let globalWorstLevel = 'ok';
+  const activeAlerts = [];
+
+  // 1. PROCESSAMENTO DAS ZONAS DE PRESSÃO (FSR)
+  // Ordem anatômica: m1 (1º Metatarso), m5 (5º Metatarso), calc (Calcâneo)
+  const zones = [
+    { id: 'm1',   label: '1º Metatarso', pin: 'GPIO 39 (VN)', raw: data.meta1 ?? 0 },
+    { id: 'm5',   label: '5º Metatarso', pin: 'GPIO 33 (IO33)', raw: data.meta5 ?? 0 },
+    { id: 'calc', label: 'Calcâneo',     pin: 'GPIO 36 (VP)', raw: data.calcaneo ?? 0 },
+  ];
+
+  zones.forEach(z => {
+    const rawVal = Math.max(0, Math.min(4095, Math.round(z.raw)));
+    const pct = Math.min(100, Math.round((rawVal / 4095) * 100));
+    const lv = getRiskLevel(rawVal, thresh.pressWarn, thresh.pressDanger);
+
+    if (lv === 'danger') globalWorstLevel = 'danger';
+    else if (lv === 'warn' && globalWorstLevel !== 'danger') globalWorstLevel = 'warn';
+
+    if (lv !== 'ok') {
+      activeAlerts.push({
+        type: 'pressure',
+        zone: z.label,
+        level: lv,
+        msg: `${z.label}: Sobrecarga detectada (${rawVal} ADC · ${pct}%)`
+      });
+    }
+
+    // Atualiza elementos do Card de Pressão
+    const meter = document.getElementById(`meter-${z.id}`);
+    const badge = document.getElementById(`val-badge-${z.id}`);
+    const intensity = document.getElementById(`intensity-${z.id}`);
+    const cardEl = document.getElementById(`card-pz-${z.id}`);
+
+    if (meter) {
+      meter.style.width = `${pct}%`;
+      meter.className = `meter-bar-fill fill-${lv}`;
+    }
+
+    if (badge) {
+      badge.textContent = `${rawVal} ADC`;
+      badge.style.color = lv === 'ok' ? 'var(--text-main)' : (lv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
+    }
+
+    if (intensity) {
+      const desc = lv === 'ok' ? 'Carga baixa/adequada' : (lv === 'warn' ? 'Carga pontual moderada' : 'Sobrecarga de pressão');
+      intensity.textContent = `${desc} (~${pct}%)`;
+    }
+
+    if (cardEl) {
+      cardEl.classList.remove('zone-warn', 'zone-danger');
+      if (lv !== 'ok') cardEl.classList.add(`zone-${lv}`);
+    }
+
+    // Atualiza Heat Zone no Mapa do Pé
+    const heatZone = document.getElementById(`zone-${z.id}`);
+    const tooltip = document.getElementById(`tip-${z.id}`);
+    if (heatZone) {
+      heatZone.className = `heat-zone ${lv}`;
+    }
+    if (tooltip) {
+      tooltip.textContent = `${rawVal} ADC (${pct}%)`;
+    }
+  });
+
+  // 2. PROCESSAMENTO DO MICROCLIMA (AHT10)
+  // Temperatura
+  if (data.temp != null && !isNaN(data.temp)) {
+    const tempVal = parseFloat(data.temp);
+    state.environment.temp = tempVal;
+    const tempLv = tempVal >= thresh.tempMax ? 'danger' : (tempVal >= thresh.tempMax - 1.5 ? 'warn' : 'ok');
+
+    if (tempLv === 'danger') globalWorstLevel = 'danger';
+    else if (tempLv === 'warn' && globalWorstLevel !== 'danger') globalWorstLevel = 'warn';
+
+    const valEl = document.getElementById('val-temp');
+    const txtEl = document.getElementById('txt-temp');
+    const fillEl = document.getElementById('fill-temp');
+
+    if (valEl) valEl.textContent = tempVal.toFixed(1);
+    if (txtEl) {
+      txtEl.textContent = tempLv === 'ok' ? 'Temperatura confortável e segura' : (tempLv === 'warn' ? 'Temperatura em elevação' : 'Atenção: Hipertermia plantar detectada');
+      txtEl.style.color = tempLv === 'ok' ? 'var(--text-muted)' : (tempLv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
+    }
+    if (fillEl) {
+      // Escala visual de 20°C a 42°C
+      const tempPct = Math.max(0, Math.min(100, ((tempVal - 20) / (42 - 20)) * 100));
+      fillEl.style.width = `${tempPct}%`;
+      fillEl.style.backgroundColor = tempLv === 'ok' ? 'var(--accent)' : (tempLv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
+    }
+
+    if (tempLv !== 'ok') {
+      activeAlerts.push({
+        type: 'temp',
+        level: tempLv,
+        msg: `Temperatura plantar elevada: ${tempVal.toFixed(1)}°C (limite: ${thresh.tempMax}°C)`
+      });
+    }
+  }
+
+  // Umidade
+  if (data.umid != null && !isNaN(data.umid)) {
+    const umidVal = parseFloat(data.umid);
+    state.environment.umid = umidVal;
+    const umidLv = umidVal >= thresh.umidMax ? 'danger' : (umidVal >= thresh.umidMax - 10 ? 'warn' : 'ok');
+
+    if (umidLv === 'danger') globalWorstLevel = 'danger';
+    else if (umidLv === 'warn' && globalWorstLevel !== 'danger') globalWorstLevel = 'warn';
+
+    const valEl = document.getElementById('val-umid');
+    const txtEl = document.getElementById('txt-umid');
+    const fillEl = document.getElementById('fill-umid');
+
+    if (valEl) valEl.textContent = Math.round(umidVal);
+    if (txtEl) {
+      txtEl.textContent = umidLv === 'ok' ? 'Umidade interna normal' : (umidLv === 'warn' ? 'Ambiente úmido' : 'Risco de maceração da pele');
+      txtEl.style.color = umidLv === 'ok' ? 'var(--text-muted)' : (umidLv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
+    }
+    if (fillEl) {
+      const umidPct = Math.max(0, Math.min(100, umidVal));
+      fillEl.style.width = `${umidPct}%`;
+      fillEl.style.backgroundColor = umidLv === 'ok' ? 'var(--primary)' : (umidLv === 'warn' ? 'var(--status-warn)' : 'var(--status-danger)');
+    }
+
+    if (umidLv !== 'ok') {
+      activeAlerts.push({
+        type: 'umid',
+        level: umidLv,
+        msg: `Umidade excessiva no calçado: ${Math.round(umidVal)}% (limite: ${thresh.umidMax}%)`
+      });
+    }
+  }
+
+  // 3. ATUALIZAÇÃO DO STATUS GERAL DO PACIENTE (HERO STATUS)
+  updateHeroStatus(globalWorstLevel, activeAlerts);
+
+  // 4. REGISTRO DE EVENTOS NO HISTÓRICO
+  activeAlerts.forEach(a => recordAlertEvent(a.level, a.msg));
+
+  // 5. ATUALIZAÇÃO DO RODAPÉ (METADADOS DE TRANSMISSÃO)
+  const metaEl = document.getElementById('footer-meta');
+  if (metaEl) {
+    const seqStr = data.seq != null ? `Amostra: #${data.seq} · ` : '';
+    const nowStr = new Date().toLocaleTimeString('pt-BR');
+    metaEl.textContent = `${seqStr}Última atualização: ${nowStr}`;
+  }
+}
+
+// ── ATUALIZAÇÃO DO CARD HERO (COMUNICAÇÃO COM O PACIENTE) ─────────────────
+function updateHeroStatus(level, alerts) {
+  const card = document.getElementById('card-hero-status');
+  const icon = document.getElementById('hero-status-icon');
+  const tag = document.getElementById('hero-status-tag');
+  const title = document.getElementById('hero-status-title');
+  const desc = document.getElementById('hero-status-desc');
+  const guidePressureTxt = document.getElementById('guide-pressure-txt');
+  const guideClimateTxt = document.getElementById('guide-climate-txt');
+
+  if (!card) return;
+
+  card.className = `card card-hero-status status-${level}`;
+
+  if (level === 'ok') {
+    icon.textContent = '🛡️';
+    tag.textContent = 'Condição Geral Segura';
+    title.textContent = 'Seus pés estão protegidos e confortáveis';
+    desc.textContent = 'Nenhuma sobrecarga ou calor excessivo foi detectado na sola do pé. Você pode prosseguir com suas tarefas com tranquilidade.';
+    if (guidePressureTxt) guidePressureTxt.textContent = 'Mantenha sua rotina normal, sem esquecer de fazer pequenas pausas se for caminhar por longos períodos.';
+    if (guideClimateTxt) guideClimateTxt.textContent = 'O calçado está com boa aeração e a umidade está controlada.';
+  } else if (level === 'warn') {
+    icon.textContent = '⚠️';
+    tag.textContent = 'Atenção Necessária';
+    title.textContent = 'Ponto de pressão ou calor em elevação';
+    desc.textContent = alerts.length > 0 
+      ? alerts.map(a => a.msg).join(' • ') 
+      : 'Identificamos aumento de esforço em regiões específicas do pé. É recomendável alternar o apoio ou sentar alguns instantes.';
+    if (guidePressureTxt) guidePressureTxt.textContent = 'Procure sentar ou aliviar o peso no pé direito para evitar acúmulo contínuo de pressão.';
+  } else {
+    icon.textContent = '🚨';
+    tag.textContent = 'Alerta de Sobrecarga';
+    title.textContent = 'Atenção: Sobrecarga excessiva detectada!';
+    desc.textContent = alerts.length > 0 
+      ? alerts.map(a => a.msg).join(' • ') 
+      : 'Pressão intensa ou temperatura crítica detectada na planta do pé. Risco iminente de trauma cutâneo.';
+    if (guidePressureTxt) guidePressureTxt.textContent = 'Recomendação imediata: Sente-se imediatamente por 15 minutos para descarregar todo o peso do pé.';
+    if (guideClimateTxt) guideClimateTxt.textContent = 'Verifique se há suor excessivo e considere trocar meias de algodão.';
+  }
+}
+
+// ── REGISTRO DE ALERTAS COM COOLDOWN (ANTI-SPAM) ──────────────────────────
+function recordAlertEvent(level, message) {
+  const now = Date.now();
+  const cooldownKey = `${level}:${message}`;
+  
+  // Cooldown de 15 segundos para o mesmo alerta
+  if (now - (state.recentAlertCooldowns[cooldownKey] || 0) < 15000) {
+    return;
+  }
+  state.recentAlertCooldowns[cooldownKey] = now;
+
+  const list = document.getElementById('event-list');
+  if (!list) return;
+
+  const emptyMsg = list.querySelector('.event-empty');
+  if (emptyMsg) emptyMsg.remove();
+
+  const item = document.createElement('div');
+  item.className = `event-item ${level}`;
+  const timeStr = new Date().toLocaleTimeString('pt-BR');
+
+  item.innerHTML = `
+    <span>${message}</span>
+    <span class="event-time">${timeStr}</span>
+  `;
+
+  list.prepend(item);
+
+  // Mantém no máximo 25 alertas recentes
+  while (list.children.length > 25) {
+    list.removeChild(list.lastChild);
+  }
+}
+
+// Limpar alertas
+document.getElementById('btn-clear-alerts')?.addEventListener('click', () => {
+  const list = document.getElementById('event-list');
+  if (list) {
+    list.innerHTML = '<div class="event-empty">Nenhum evento crítico registrado nesta sessão.</div>';
+  }
+  state.recentAlertCooldowns = {};
+});
+
+// ── CONEXÃO BLUETOOTH LOW ENERGY (WEB BLUETOOTH API) ──────────────────────
+const btnBle = document.getElementById('btn-ble');
+btnBle?.addEventListener('click', async () => {
+  if (state.connectionType === 'ble' && state.bleDevice?.gatt?.connected) {
+    disconnectAll();
+    return;
+  }
+
+  if (!navigator.bluetooth) {
+    alert('A API Web Bluetooth não está disponível neste navegador. Por favor, utilize o Google Chrome ou Microsoft Edge no desktop ou Android.');
+    return;
+  }
+
+  disconnectAll();
+
+  btnBle.disabled = true;
+  document.getElementById('btn-ble-text').textContent = 'Buscando...';
+
+  try {
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'MonitorPlantar' }],
+      optionalServices: [BLE_SVC_UUID]
+    });
+
+    state.bleDevice = device;
+    device.addEventListener('gattserverdisconnected', onDeviceDisconnected);
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService(BLE_SVC_UUID);
+    const characteristic = await service.getCharacteristic(BLE_CHAR_UUID);
+    state.bleChar = characteristic;
+
+    await characteristic.startNotifications();
+    characteristic.addEventListener('characteristicvaluechanged', onBleDataReceived);
+
+    setConnectionState('ble', true);
+
+    // Se o modo demo estiver ativo, desativa para priorizar dados reais
+    const chkDemo = document.getElementById('chk-demo');
+    if (chkDemo && chkDemo.checked) {
+      chkDemo.checked = false;
+      stopDemo();
+    }
+  } catch (err) {
+    console.warn('Erro na conexão BLE:', err);
+    if (err.name !== 'NotFoundError') {
+      alert(`Não foi possível conectar ao dispositivo BLE: ${err.message}`);
+    }
+    setConnectionState('none', false);
+  } finally {
+    btnBle.disabled = false;
+  }
+});
+
+function onBleDataReceived(event) {
+  try {
+    const rawString = new TextDecoder('utf-8').decode(event.target.value);
+    const parsed = JSON.parse(rawString);
+
+    const data = {
+      calcaneo: parsed.calcaneo != null ? parseInt(parsed.calcaneo, 10) : 0,
+      meta1:    parsed.meta1 != null ? parseInt(parsed.meta1, 10) : 0,
+      meta5:    parsed.meta5 != null ? parseInt(parsed.meta5, 10) : 0,
+      temp:     parsed.temp != null ? parseFloat(parsed.temp) : state.environment.temp,
+      umid:     parsed.umid != null ? parseFloat(parsed.umid) : state.environment.umid,
+      seq:      parsed.seq != null ? parseInt(parsed.seq, 10) : null
+    };
+
+    render(data);
+  } catch (e) {
+    console.warn('Falha no parsing do pacote BLE:', e);
+  }
+}
+
+// ── CONEXÃO CABO USB SERIAL (WEB SERIAL API) ──────────────────────────────
+const btnSerial = document.getElementById('btn-serial');
+btnSerial?.addEventListener('click', async () => {
+  if (state.connectionType === 'serial' && state.serialPort) {
+    disconnectAll();
+    return;
+  }
+
+  if (!navigator.serial) {
+    alert('A API Web Serial não está disponível neste navegador. Por favor, utilize o Google Chrome ou Microsoft Edge em computadores desktop.');
+    return;
+  }
+
+  disconnectAll();
+
+  btnSerial.disabled = true;
+  document.getElementById('btn-serial-text').textContent = 'Conectando...';
+
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    state.serialPort = port;
+
+    setConnectionState('serial', true);
+
+    // Desativa modo demo
+    const chkDemo = document.getElementById('chk-demo');
+    if (chkDemo && chkDemo.checked) {
+      chkDemo.checked = false;
+      stopDemo();
+    }
+
+    readSerialStream(port);
+  } catch (err) {
+    console.warn('Erro ao abrir porta Serial:', err);
+    if (err.name !== 'NotFoundError') {
+      alert(`Não foi possível conectar à porta serial USB: ${err.message}`);
+    }
+    setConnectionState('none', false);
+  } finally {
+    btnSerial.disabled = false;
+  }
+});
+
+async function readSerialStream(port) {
+  const textDecoder = new TextDecoderStream();
+  const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+  const reader = textDecoder.readable.getReader();
+  state.serialReader = reader;
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        processSerialText(value);
+      }
+    }
+  } catch (err) {
+    console.warn('Leitura serial interrompida:', err);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// Processamento linha a linha do CSV transmitido pelo firmware da bancada:
+// t_ms,dt_ms,seq,calc_raw,calc_media,calc_mV,m1_raw,m1_media,m1_mV,m5_raw,m5_media,m5_mV,aht_ok,temp_C,umid_pct,aht_erro
+function processSerialText(chunk) {
+  state.serialBuffer += chunk;
+  const lines = state.serialBuffer.split('\n');
+  state.serialBuffer = lines.pop(); // Guarda pedaço incompleto da última linha
+
+  for (const line of lines) {
+    const clean = line.trim();
+    if (!clean || clean.startsWith('#')) continue;
+
+    const parts = clean.split(',');
+    // Linha válida tem 16 campos
+    if (parts.length >= 15 && !isNaN(parts[0])) {
+      const seqVal    = parseInt(parts[2], 10);
+      const calcMedia = parseInt(parts[4], 10) || parseInt(parts[3], 10);
+      const m1Media   = parseInt(parts[7], 10) || parseInt(parts[6], 10);
+      const m5Media   = parseInt(parts[10], 10) || parseInt(parts[9], 10);
+      const tempVal   = parts[13] !== 'NA' ? parseFloat(parts[13]) : state.environment.temp;
+      const umidVal   = parts[14] !== 'NA' ? parseFloat(parts[14]) : state.environment.umid;
+
+      render({
+        calcaneo: calcMedia,
+        meta1: m1Media,
+        meta5: m5Media,
+        temp: tempVal,
+        umid: umidVal,
+        seq: seqVal
+      });
+    }
+  }
+}
+
+// ── GERENCIAMENTO DE ESTADO DE CONEXÃO E BOTÕES ───────────────────────────
+function setConnectionState(type, isConnected) {
+  state.connectionType = isConnected ? type : 'none';
+
+  const pill = document.getElementById('conn-pill');
+  const label = document.getElementById('conn-label');
+  const btnBleText = document.getElementById('btn-ble-text');
+  const btnSerialText = document.getElementById('btn-serial-text');
+
+  if (isConnected) {
+    pill.classList.add('connected');
+    if (type === 'ble') {
+      label.textContent = 'Conectado via BLE (Sem Fio)';
+      btnBle.classList.add('active-connected');
+      btnBleText.textContent = 'Desconectar BLE';
+      btnSerial.disabled = true;
+    } else if (type === 'serial') {
+      label.textContent = 'Conectado via Cabo USB (115200)';
+      btnSerial.classList.add('active-connected');
+      btnSerialText.textContent = 'Desconectar USB';
+      btnBle.disabled = true;
+    }
+  } else {
+    pill.classList.remove('connected');
+    label.textContent = 'Desconectado';
+    btnBle.classList.remove('active-connected');
+    btnBle.disabled = false;
+    btnBleText.textContent = 'Conectar BLE';
+    btnSerial.classList.remove('active-connected');
+    btnSerial.disabled = false;
+    btnSerialText.textContent = 'Cabo USB';
+  }
+}
+
+function onDeviceDisconnected() {
+  setConnectionState('none', false);
+  recordAlertEvent('warn', 'Dispositivo BLE desconectado.');
+}
+
+async function disconnectAll() {
+  if (state.bleDevice && state.bleDevice.gatt.connected) {
+    state.bleDevice.gatt.disconnect();
+  }
+  state.bleDevice = null;
+  state.bleChar = null;
+
+  if (state.serialReader) {
+    try { await state.serialReader.cancel(); } catch (e) {}
+    state.serialReader = null;
+  }
+  if (state.serialPort) {
+    try { await state.serialPort.close(); } catch (e) {}
+    state.serialPort = null;
+  }
+
+  setConnectionState('none', false);
+}
+
+// ── MODO DEMONSTRAÇÃO / SIMULAÇÃO DE MARCHA E MICROCLIMA ───────────────────
+const chkDemo = document.getElementById('chk-demo');
+chkDemo?.addEventListener('change', (e) => {
+  if (e.target.checked) {
+    disconnectAll();
+    startDemo();
+  } else {
+    stopDemo();
+  }
+});
+
+function startDemo() {
+  if (state.demoTimer) return;
+  state.demoStepCount = 0;
+  // Atualização suave a cada 250ms simulando o ciclo de marcha
+  state.demoTimer = setInterval(demoTick, 250);
+}
+
+function stopDemo() {
+  if (state.demoTimer) {
+    clearInterval(state.demoTimer);
+    state.demoTimer = null;
+  }
+}
+
+function demoTick() {
+  state.demoStepCount++;
+  const cycle = (state.demoStepCount % 16); // Ciclo com 16 fases
+
+  let calcVal = 200;
+  let m1Val   = 200;
+  let m5Val   = 200;
+
+  // Fase 1 a 4: Contato Inicial (Heel Strike) - Calcâneo sob alta carga
+  if (cycle >= 0 && cycle < 4) {
+    calcVal = 2200 + Math.round(750 * Math.sin((cycle / 4) * Math.PI));
+    m1Val = 300 + Math.round(150 * Math.random());
+    m5Val = 350 + Math.round(180 * Math.random());
+  }
+  // Fase 5 a 8: Apoio Médio (Midstance) - Transição de carga pela borda lateral
+  else if (cycle >= 4 && cycle < 8) {
+    calcVal = 950 + Math.round(200 * Math.random());
+    m5Val   = 1750 + Math.round(500 * Math.sin(((cycle - 4) / 4) * Math.PI));
+    m1Val   = 800 + Math.round(300 * Math.random());
+  }
+  // Fase 9 a 12: Propulsão / Apoio Terminal (Toe-off) - M1 e M5 sob alta carga
+  else if (cycle >= 8 && cycle < 12) {
+    calcVal = 250 + Math.round(80 * Math.random());
+    m1Val   = 2400 + Math.round(850 * Math.sin(((cycle - 8) / 4) * Math.PI));
+    m5Val   = 1500 + Math.round(400 * Math.sin(((cycle - 8) / 4) * Math.PI));
+  }
+  // Fase 13 a 15: Balanço (Swing phase) - Pé no ar, todos descarregados
+  else {
+    calcVal = 180 + Math.round(50 * Math.random());
+    m1Val   = 190 + Math.round(60 * Math.random());
+    m5Val   = 170 + Math.round(50 * Math.random());
+  }
+
+  // Simulação térmica e de umidade lenta
+  const slowTime = state.demoStepCount * 0.05;
+  const tempSim = 32.2 + 1.2 * Math.sin(slowTime) + (Math.random() * 0.1);
+  const umidSim = 58.0 + 8.0 * Math.cos(slowTime * 0.7) + (Math.random() * 0.4);
+
+  render({
+    calcaneo: calcVal,
+    meta1: m1Val,
+    meta5: m5Val,
+    temp: tempSim,
+    umid: umidSim,
+    seq: state.demoStepCount
+  });
+}
+
+// ── INICIALIZAÇÃO AUTOMÁTICA AO CARREGAR A PÁGINA ──────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  if (chkDemo && chkDemo.checked) {
+    startDemo();
+  }
+});

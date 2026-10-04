@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="description" content="Interface visual para monitoramento plantar e microclima para prevenção de úlceras no pé diabético. Projeto de Mestrado Profissional em Telessaúde e Saúde Digital (UERJ).">
+  <meta name="theme-color" content="#0f766e">
+  <title>Monitor Plantar · Cuidado Preventivo do Pé</title>
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- CABEÇALHO SUPERIOR INSTITUCIONAL -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand-box">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">Monitor Plantar Inteligente</h1>
+          <p class="brand-sub">PPGTS · UERJ | Mestrado Profissional em Telessaúde</p>
+        </div>
+      </div>
+
+      <!-- BOTÕES DE CONEXÃO E STATUS -->
+      <div class="header-actions">
+        <div class="connection-status-pill" id="conn-pill">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="status-label" id="conn-label">Desconectado</span>
+        </div>
+
+        <!-- Conexão BLE (Sem Fio) -->
+        <button id="btn-ble" class="btn btn-primary" title="Conectar via Bluetooth Low Energy (BLE)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m7 7 10 10-5 5V2l5 5L7 17"/>
+          </svg>
+          <span id="btn-ble-text">Conectar BLE</span>
+        </button>
+
+        <!-- Conexão USB Serial (Cabo de Bancada) -->
+        <button id="btn-serial" class="btn btn-secondary" title="Conectar via Cabo USB (Porta Serial 115200 baud)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="8" rx="2"/>
+            <rect x="2" y="14" width="20" height="8" rx="2"/>
+            <line x1="6" y1="6" x2="6.01" y2="6"/>
+            <line x1="6" y1="18" x2="6.01" y2="18"/>
+          </svg>
+          <span id="btn-serial-text">Cabo USB</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- BANNER DE MODO DE OPERAÇÃO & DEMONSTRAÇÃO -->
+  <aside class="mode-bar">
+    <div class="mode-container">
+      <div class="mode-left">
+        <label class="toggle-switch">
+          <input type="checkbox" id="chk-demo" checked>
+          <span class="slider"></span>
+        </label>
+        <span class="mode-text">
+          <strong>Modo Simulação Ativo</strong> — Simulando dinâmica da marcha e variação térmica
+        </span>
+      </div>
+      <div class="mode-right">
+        <span class="badge-bench" title="Esclarecimento sobre a unidade de medida">
+          ⚠️ Sinal ADC Bruto (0–4095) · Calibração baropodométrica em andamento
+        </span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <main class="main-content">
+
+    <!-- 1. CARTÃO DE ESTADO GERAL (INTERPRETAÇÃO AMIGÁVEL PARA O PACIENTE) -->
+    <section class="card card-hero-status status-ok" id="card-hero-status">
+      <div class="hero-status-icon-wrapper" id="hero-status-icon-bg">
+        <span class="hero-status-icon" id="hero-status-icon">🛡️</span>
+      </div>
+      <div class="hero-status-body">
+        <div class="hero-status-tag" id="hero-status-tag">Condição Geral Adequada</div>
+        <h2 class="hero-status-title" id="hero-status-title">Distribuição de carga e ambiente sob controle</h2>
+        <p class="hero-status-desc" id="hero-status-desc">
+          Nenhuma sobrecarga contínua detectada no retropé ou antepé. Temperatura e umidade estão dentro dos limites preventivos recomendados.
+        </p>
+      </div>
+    </section>
+
+    <!-- 2. GRID PRINCIPAL: MAPA DO PÉ + CARGA NAS 3 REGIÕES -->
+    <div class="grid-plantar">
+
+      <!-- MAPA VISUAL DO PÉ (COM A IMAGEM OFICIAL) -->
+      <section class="card card-foot-map">
+        <div class="card-header-clean">
+          <div>
+            <h3 class="card-title">Distribuição Plantar</h3>
+            <p class="card-subtitle">Pé Direito · Zonas de maior vulnerabilidade neuropática</p>
+          </div>
+          <span class="badge-foot-type">Vista Plantar</span>
+        </div>
+
+        <div class="foot-visual-wrapper">
+          <div class="foot-visual-container">
+            <!-- Imagem original do pé com contorno limpo -->
+            <img src="clean_foot.png" alt="Contorno anatômico do pé direito" class="foot-image" id="foot-img">
+
+            <!-- ZONA 1: 1º METATARSO (M1 - Antepé Medial) -->
+            <div class="heat-zone ok" id="zone-m1" style="left: 34%; top: 35%;" data-zone="m1">
+              <div class="heat-pulse"></div>
+              <div class="heat-core">
+                <span class="zone-tag">M1</span>
+              </div>
+              <div class="zone-tooltip">1º Metatarso<br><strong id="tip-m1">0 ADC</strong></div>
+            </div>
+
+            <!-- ZONA 2: 5º METATARSO (M5 - Antepé Lateral) -->
+            <div class="heat-zone ok" id="zone-m5" style="left: 65%; top: 40%;" data-zone="m5">
+              <div class="heat-pulse"></div>
+              <div class="heat-core">
+                <span class="zone-tag">M5</span>
+              </div>
+              <div class="zone-tooltip">5º Metatarso<br><strong id="tip-m5">0 ADC</strong></div>
+            </div>
+
+            <!-- ZONA 3: CALCÂNEO (CAL - Retropé) -->
+            <div class="heat-zone ok" id="zone-calc" style="left: 51%; top: 87%;" data-zone="calc">
+              <div class="heat-pulse"></div>
+              <div class="heat-core">
+                <span class="zone-tag">CAL</span>
+              </div>
+              <div class="zone-tooltip">Calcâneo<br><strong id="tip-calc">0 ADC</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- LEGENDA CLÍNICA RÁPIDA -->
+        <div class="clinical-legend">
+          <div class="leg-item"><span class="leg-dot dot-ok"></span> Seguro</div>
+          <div class="leg-item"><span class="leg-dot dot-warn"></span> Atenção</div>
+          <div class="leg-item"><span class="leg-dot dot-danger"></span> Sobrecarga</div>
+        </div>
+      </section>
+
+      <!-- PAINEL DE CARGAS ESPECÍFICAS (BARRAS DE INTENSIDADE E VALORES BRUTOS) -->
+      <section class="card card-readings">
+        <div class="card-header-clean">
+          <div>
+            <h3 class="card-title">Pressão por Região Plantar</h3>
+            <p class="card-subtitle">Sinal relativo captado pelos sensores de força FSR</p>
+          </div>
+        </div>
+
+        <div class="pressure-list">
+
+          <!-- 1º METATARSO (M1) -->
+          <div class="pressure-card zone-m1-card" id="card-pz-m1">
+            <div class="pressure-card-header">
+              <div class="zone-identity">
+                <span class="zone-bullet">M1</span>
+                <div>
+                  <div class="zone-name">1º Metatarso (Antepé Medial)</div>
+                  <div class="zone-role">Região comumente sujeita a calos e úlceras em diabéticos</div>
+                </div>
+              </div>
+              <div class="zone-value-badge" id="val-badge-m1">0 ADC</div>
+            </div>
+
+            <div class="meter-bar-container">
+              <div class="meter-bar-fill fill-ok" id="meter-m1" style="width: 0%;"></div>
+            </div>
+
+            <div class="meter-meta">
+              <span class="meta-intensity" id="intensity-m1">Carga baixa (0%)</span>
+              <span class="meta-raw" id="meta-raw-m1">Pino: GPIO 39 (VN)</span>
+            </div>
+          </div>
+
+          <!-- 5º METATARSO (M5) -->
+          <div class="pressure-card zone-m5-card" id="card-pz-m5">
+            <div class="pressure-card-header">
+              <div class="zone-identity">
+                <span class="zone-bullet">M5</span>
+                <div>
+                  <div class="zone-name">5º Metatarso (Antepé Lateral)</div>
+                  <div class="zone-role">Borda lateral da pisada e equilíbrio dinâmico</div>
+                </div>
+              </div>
+              <div class="zone-value-badge" id="val-badge-m5">0 ADC</div>
+            </div>
+
+            <div class="meter-bar-container">
+              <div class="meter-bar-fill fill-ok" id="meter-m5" style="width: 0%;"></div>
+            </div>
+
+            <div class="meter-meta">
+              <span class="meta-intensity" id="intensity-m5">Carga baixa (0%)</span>
+              <span class="meta-raw" id="meta-raw-m5">Pino: GPIO 33 (IO33)</span>
+            </div>
+          </div>
+
+          <!-- CALCÂNEO (CAL) -->
+          <div class="pressure-card zone-calc-card" id="card-pz-calc">
+            <div class="pressure-card-header">
+              <div class="zone-identity">
+                <span class="zone-bullet">CAL</span>
+                <div>
+                  <div class="zone-name">Calcâneo (Retropé)</div>
+                  <div class="zone-role">Primeiro impacto da marcha (Heel Strike) e apoio de repouso</div>
+                </div>
+              </div>
+              <div class="zone-value-badge" id="val-badge-calc">0 ADC</div>
+            </div>
+
+            <div class="meter-bar-container">
+              <div class="meter-bar-fill fill-ok" id="meter-calc" style="width: 0%;"></div>
+            </div>
+
+            <div class="meter-meta">
+              <span class="meta-intensity" id="intensity-calc">Carga baixa (0%)</span>
+              <span class="meta-raw" id="meta-raw-calc">Pino: GPIO 36 (VP)</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- NOTA DE TRANSPARÊNCIA CIENTÍFICA (MESTRADO) -->
+        <div class="bench-calibration-box">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <p>
+            <strong>Esclarecimento Acadêmico:</strong> As leituras de carga acima representam valores analógicos brutos (ADC de 12 bits, escala de 0 a 4095). A correlação exata com pressão física em kPa/N/cm² será estabelecida através do ensaio de equiparação em bancada com baropodômetro computadorizado.
+          </p>
+        </div>
+
+      </section>
+
+    </div>
+
+    <!-- 3. MICROCLIMA PLANTAR (TEMPERATURA & UMIDADE INTERNA) -->
+    <section class="card card-microclimate">
+      <div class="card-header-clean">
+        <div>
+          <h3 class="card-title">Microclima Interno do Calçado</h3>
+          <p class="card-subtitle">Monitoramento contínuo para evitar hipertermia (inflamação) e maceração da pele</p>
+        </div>
+        <span class="badge-sensor">Sensor Digital AHT10 (I2C)</span>
+      </div>
+
+      <div class="climate-cards-grid">
+
+        <!-- CARTÃO TEMPERATURA -->
+        <div class="climate-card" id="card-temp">
+          <div class="climate-card-icon temp-icon">🌡️</div>
+          <div class="climate-info">
+            <span class="climate-label">Temperatura Plantar</span>
+            <div class="climate-val-row">
+              <span class="climate-value" id="val-temp">--</span>
+              <span class="climate-unit">°C</span>
+            </div>
+            <p class="climate-status-txt" id="txt-temp">Aguardando dados...</p>
+          </div>
+          <div class="climate-progress-wrap">
+            <div class="climate-progress-bar">
+              <div class="climate-progress-fill" id="fill-temp" style="width: 0%;"></div>
+            </div>
+            <div class="climate-scale">
+              <span>20°C</span>
+              <span>Ref: 34.5°C</span>
+              <span>42°C</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- CARTÃO UMIDADE -->
+        <div class="climate-card" id="card-umid">
+          <div class="climate-card-icon umid-icon">💧</div>
+          <div class="climate-info">
+            <span class="climate-label">Umidade Relativa</span>
+            <div class="climate-val-row">
+              <span class="climate-value" id="val-umid">--</span>
+              <span class="climate-unit">%</span>
+            </div>
+            <p class="climate-status-txt" id="txt-umid">Aguardando dados...</p>
+          </div>
+          <div class="climate-progress-wrap">
+            <div class="climate-progress-bar">
+              <div class="climate-progress-fill" id="fill-umid" style="width: 0%;"></div>
+            </div>
+            <div class="climate-scale">
+              <span>0%</span>
+              <span>Alerta: 75%</span>
+              <span>100%</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 4. GUIA DE ORIENTAÇÕES PARA O PACIENTE (HUMANIZAÇÃO E EDUCAÇÃO EM SAÚDE) -->
+    <section class="card card-guidance">
+      <div class="guidance-header">
+        <span class="guidance-icon">💡</span>
+        <div>
+          <h3 class="guidance-title">Orientações de Autocuidado para o Paciente</h3>
+          <p class="guidance-desc">Ações imediatas recomendadas com base nas informações capturadas pela palmilha</p>
+        </div>
+      </div>
+
+      <div class="guidance-cards">
+        <div class="guide-item" id="guide-pressure">
+          <div class="guide-item-icon">👟</div>
+          <div class="guide-item-text">
+            <strong>Alívio de Pressão:</strong>
+            <span id="guide-pressure-txt">Se estiver caminhando há muito tempo e sentir calor ou cansaço, sente-se por 10 minutos para descarregar o peso do calcanhar e metatarsos.</span>
+          </div>
+        </div>
+
+        <div class="guide-item" id="guide-skin">
+          <div class="guide-item-icon">🔍</div>
+          <div class="guide-item-text">
+            <strong>Inspeção Diária da Pele:</strong>
+            <span>Ao retirar o calçado ao final do dia, use um espelho para verificar se há vermelhidão, calos ou áreas doloridas no calcanhar e na ponta do pé.</span>
+          </div>
+        </div>
+
+        <div class="guide-item" id="guide-climate">
+          <div class="guide-item-icon">🧦</div>
+          <div class="guide-item-text">
+            <strong>Calçados e Meias:</strong>
+            <span id="guide-climate-txt">Se a umidade interna subir muito, troque de meias de algodão para evitar que a pele fique úmida e vulnerável a feridas.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. PAINEL DE AJUSTES & HISTÓRICO DE ALERTAS (EXPANSÍVEL) -->
+    <section class="card card-settings-alerts">
+      <details class="accordion-details">
+        <summary class="accordion-summary">
+          <span class="summary-left">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <strong>Parâmetros de Alerta &amp; Histórico da Sessão</strong>
+          </span>
+          <span class="summary-hint">Clique para expandir</span>
+        </summary>
+
+        <div class="accordion-content">
+          <!-- CONFIGURAÇÃO DE LIMITES -->
+          <div class="thresholds-box">
+            <h4 class="subhead">Ajuste de Limiares para Bancada / Validação</h4>
+            <div class="thresholds-grid">
+              <div class="field-group">
+                <label for="thresh-press-warn">Atenção Pressão (ADC):</label>
+                <input type="number" id="thresh-press-warn" value="2400" min="500" max="4095" step="100">
+              </div>
+              <div class="field-group">
+                <label for="thresh-press-danger">Alerta Pressão (ADC):</label>
+                <input type="number" id="thresh-press-danger" value="3200" min="500" max="4095" step="100">
+              </div>
+              <div class="field-group">
+                <label for="thresh-temp">Limite Temperatura (°C):</label>
+                <input type="number" id="thresh-temp" value="34.5" min="25" max="45" step="0.5">
+              </div>
+              <div class="field-group">
+                <label for="thresh-umid">Limite Umidade (%):</label>
+                <input type="number" id="thresh-umid" value="75" min="30" max="100" step="5">
+              </div>
+            </div>
+          </div>
+
+          <!-- HISTÓRICO DE EVENTOS / ALERTAS -->
+          <div class="event-log-box">
+            <div class="event-log-header">
+              <h4 class="subhead">Histórico de Alertas Recentes</h4>
+              <button class="btn btn-tiny" id="btn-clear-alerts">Limpar Alertas</button>
+            </div>
+            <div class="event-list" id="event-list">
+              <div class="event-empty">Nenhum evento crítico registrado nesta sessão.</div>
+            </div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+  </main>
+
+  <!-- RODAPÉ INFORMATIVO -->
+  <footer class="app-footer">
+    <div class="footer-container">
+      <div class="footer-info">
+        <p><strong>Palmilha Instrumentada para Monitoramento Preventivo do Pé Diabético</strong></p>
+        <p>Desenvolvido para dissertação de Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ).</p>
+      </div>
+      <div class="footer-meta" id="footer-meta">
+        Aguardando transmissão...
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT PRINCIPAL -->
+  <script src="app.js"></script>
+</body>
+</html>
