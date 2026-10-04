@@ -251,6 +251,16 @@ function render(data) {
         msg: `Temperatura plantar elevada: ${tempVal.toFixed(1)}°C (limite: ${thresh.tempMax}°C)`
       });
     }
+  } else {
+    const valEl = document.getElementById('val-temp');
+    const txtEl = document.getElementById('txt-temp');
+    const fillEl = document.getElementById('fill-temp');
+    if (valEl) valEl.textContent = '--';
+    if (txtEl) {
+      txtEl.textContent = 'Sensor desativado / Opcional';
+      txtEl.style.color = 'var(--text-muted)';
+    }
+    if (fillEl) fillEl.style.width = '0%';
   }
 
   // Umidade
@@ -284,6 +294,16 @@ function render(data) {
         msg: `Umidade excessiva no calçado: ${Math.round(umidVal)}% (limite: ${thresh.umidMax}%)`
       });
     }
+  } else {
+    const valEl = document.getElementById('val-umid');
+    const txtEl = document.getElementById('txt-umid');
+    const fillEl = document.getElementById('fill-umid');
+    if (valEl) valEl.textContent = '--';
+    if (txtEl) {
+      txtEl.textContent = 'Sensor desativado / Opcional';
+      txtEl.style.color = 'var(--text-muted)';
+    }
+    if (fillEl) fillEl.style.width = '0%';
   }
 
   // 3. ATUALIZAÇÃO DO STATUS GERAL DO PACIENTE (HERO STATUS)
