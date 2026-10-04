@@ -9,7 +9,7 @@
     - Sensor AHT10: REMOVIDO do circuito fisico.
     - LED Status / Bateria: GPIO 5 (Heartbeat quando desconectado; fixo ao conectar BLE)
     - ADC: Canais 36, 33 e 39 pertencem ao ADC1 (100% compativel com RF BLE)
-    - Calibracao automatica no boot: 30 amostras em repouso
+    - Compensacao PGA Digital: Ganho configuravel por canal para calibracao com pesos padrao.
 */
 
 #include <Arduino.h>
@@ -35,6 +35,11 @@ uint32_t ultimoAvisoMTU  = 0;
 // ── MAPEAMENTO DOS PINOS FSR (TODOS NO ADC1) ─────────────────────────────────
 // [0]=Calcaneo (VP/GPIO 36), [1]=M1 (GPIO 33), [2]=M5 (VN/GPIO 39)
 const uint8_t PINOS_FSR[3] = {36, 33, 39};
+
+// ── FATORES DE CALIBRACAO E GANHO (PGA DIGITAL) ─────────────────────────────
+// Permite equiparar a resposta dos 3 sensores com o mesmo peso de teste.
+// [0] = Calcaneo (GPIO 36) | [1] = M1 (GPIO 33) | [2] = M5 (GPIO 39)
+float GANHOS_FSR[3] = {10.0f, 1.0f, 1.0f};
 
 // ── INDICADOR DE STATUS / ALIMENTACAO (BATERIA) ──────────────────────────────
 const uint8_t PINO_LED_STATUS = 5; // LED onboard LOLIN32 V1.0.0 (GPIO 5) / ou externo
@@ -95,10 +100,14 @@ void lerFSRs() {
     somas[i] += adcBruto[i];
     adcMedia[i] = somas[i] / quantidadeFiltro;
 
-    // Calculo do sinal liquido com desconto da pre-carga/repouso
+    // Calculo do sinal liquido com desconto da pre-carga/repouso e ganho PGA
     if (taraConcluida) {
       int liq = adcMedia[i] - adcTara[i];
-      adcLiquido[i] = (liq > 0) ? liq : 0;
+      if (liq < 0) liq = 0;
+      
+      // Aplica o fator de calibracao / equiparacao
+      float liqEscalado = (float)liq * GANHOS_FSR[i];
+      adcLiquido[i] = (int)constrain(liqEscalado, 0.0f, 4095.0f);
     } else {
       adcLiquido[i] = adcMedia[i];
     }
@@ -143,7 +152,6 @@ void inicializarBLE() {
 }
 
 void publicarBLE(uint32_t agora) {
-  // Pacote JSON compacto. temp e umid como null mantem total compatibilidade com a web interface
   String pacote = "{\"calcaneo\":" + String(adcLiquido[0]) +
                   ",\"meta1\":" + String(adcLiquido[1]) +
                   ",\"meta5\":" + String(adcLiquido[2]) +
@@ -170,27 +178,40 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("# =========================================================");
-  Serial.println("# Palmilha Instrumentada - Firmware Atualizado 2026");
+  Serial.println("# Palmilha Instrumentada - Calibracao & Equiparacao 2026");
   Serial.println("# Mapeamento FSR:");
-  Serial.println("#   - Calcaneo: GPIO 36 (VP)  -> Pino 2 conector 8 vias");
-  Serial.println("#   - M1:       GPIO 33       -> Pino 4 conector 8 vias");
-  Serial.println("#   - M5:       GPIO 39 (VN)  -> Pino 3 conector 8 vias");
-  Serial.println("# Sensor Temperatura/Umidade: Removido do circuito");
-  Serial.println("# LED de Status: GPIO 5 (Heartbeat bateria / Fixo conectado)");
+  Serial.println("#   - Calcaneo: GPIO 36 (VP)  -> Atenuacao: ADC_0db (Alta Sensibilidade)");
+  Serial.println("#   - M1:       GPIO 33       -> Atenuacao: ADC_11db");
+  Serial.println("#   - M5:       GPIO 39 (VN)  -> Atenuacao: ADC_11db");
+  Serial.print("# Ganhos de Calibracao: Calcaneo=");
+  Serial.print(GANHOS_FSR[0], 1);
+  Serial.print("x | M1=");
+  Serial.print(GANHOS_FSR[1], 1);
+  Serial.print("x | M5=");
+  Serial.print(GANHOS_FSR[2], 1);
+  Serial.println("x");
   Serial.println("# =========================================================");
 
   analogReadResolution(12);
-  for (uint8_t i = 0; i < 3; ++i) {
-    pinMode(PINOS_FSR[i], INPUT);
-    analogSetPinAttenuation(PINOS_FSR[i], ADC_11db);
-  }
+
+  // Calcaneo (GPIO 36): Atenuacao 0 dB (escala 0-1.1V) para amplificar sinais fracos
+  pinMode(PINOS_FSR[0], INPUT);
+  analogSetPinAttenuation(PINOS_FSR[0], ADC_0db);
+
+  // M1 (GPIO 33): Atenuacao 11 dB (escala normal 0-3.3V)
+  pinMode(PINOS_FSR[1], INPUT);
+  analogSetPinAttenuation(PINOS_FSR[1], ADC_11db);
+
+  // M5 (GPIO 39): Atenuacao 11 dB (escala normal 0-3.3V)
+  pinMode(PINOS_FSR[2], INPUT);
+  analogSetPinAttenuation(PINOS_FSR[2], ADC_11db);
 
   // Inicializa LED indicador de bateria
   pinMode(PINO_LED_STATUS, OUTPUT);
   digitalWrite(PINO_LED_STATUS, LED_ON);
 
-  // Calibracao automatica de linha de base (repouso)
-  Serial.println("# [BOOT] Calibrando tara automatica de repouso... Mantenha a palmilha descarregada.");
+  // Calibracao automatica de repouso (tara)
+  Serial.println("# [BOOT] Calibrando tara automatica de repouso... Palmilha descarregada.");
   delay(300);
   for (int amostra = 0; amostra < 30; ++amostra) {
     lerFSRs();
