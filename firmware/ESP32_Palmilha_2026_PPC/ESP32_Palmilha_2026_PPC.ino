@@ -1,6 +1,5 @@
 /*
   Palmilha - bancada eletrica, 04/10/2026.
-  Derivado de ESP32_Palmilha_2026.ino.
   Hardware: LOLIN32 V1.0.0.
   
   Mapeamento de Pinos FSR (ADC1):
@@ -8,10 +7,17 @@
     - M1 (1º Metatarso, FSR2): GPIO 33    -> ADC1_CH5
     - M5 (5º Metatarso, FSR3): GPIO 39 (Sensor VN) -> ADC1_CH3
     
-  Configuracao:
-    - Sensor do calcaneo substituido fisicamente: medicoes do zero (1.0x, sem amplificacao artificial).
-    - Atenuacao padrao ADC_11db em todos os canais (escala completa ~0-3.3V).
-    - Sensores de temperatura e umidade (AHT10/I2C) removidos conforme solicitado.
+  Equiparacao dos Sensores (Regra de 3 com base nas medidas reais de bancada):
+    - Medidas de referencia (mesma pressao manual):
+        * Calcaneo (novo): 80 a 90  -> Media = 85 ADC
+        * M1:              400 a 500 -> Media = 450 ADC
+        * M5:              600 a 700 -> Media = 650 ADC (Referencia base)
+    - Fatores de Ganho Calculados (Alvo = 650):
+        * Calcaneo: 650 / 85  = 7.647x
+        * M1:       650 / 450 = 1.444x
+        * M5:       650 / 650 = 1.000x
+        
+    - Sensores de temperatura e umidade removidos conforme solicitado.
     - LED Status: GPIO 5 (Heartbeat quando desconectado; Aceso fixo quando conectado via BLE).
     - BLE v5.0 ativo (JSON compativel com a interface web).
 */
@@ -39,6 +45,14 @@ uint32_t ultimoAvisoMTU  = 0;
 // ── MAPEAMENTO DOS PINOS FSR (Calcaneo=36, M1=33, M5=39) ────────────────────
 const uint8_t PINOS_FSR[3] = {36, 33, 39}; // [0]=Calcaneo, [1]=M1, [2]=M5
 
+// ── FATORES DE EQUIPARACAO (REGRA DE 3) ──────────────────────────────────────
+// Alvo de normalizacao = M5 (~650 ADC)
+const float FATORES_EQUIPARACAO[3] = {
+  7.647f, // Calcaneo: 650 / 85  = 7.647x
+  1.444f, // M1:       650 / 450 = 1.444x
+  1.000f  // M5:       650 / 650 = 1.000x (base)
+};
+
 // ── INDICADOR DE STATUS / ALIMENTACAO (BATERIA) ──────────────────────────────
 const uint8_t PINO_LED_STATUS = 5; // LED onboard LOLIN32 V1.0.0 (GPIO 5)
 const uint8_t LED_ON  = LOW;       // LOLIN32 ativo em LOW
@@ -50,6 +64,7 @@ const uint32_t PERIODO_FSR_MS = 100;
 
 int adcBruto[3]       = {0, 0, 0};
 int adcMedia[3]       = {0, 0, 0};
+int adcEquiparado[3]  = {0, 0, 0};
 uint32_t milivolts[3] = {0, 0, 0};
 int historico[3][NUM_AMOSTRAS] = {};
 uint32_t somas[3]     = {0, 0, 0};
@@ -79,8 +94,7 @@ void atualizarLedStatus() {
   }
 #endif
 
-  // Desconectado (ligado na bateria e aguardando conexao):
-  // Pulso de batimento cardiaco (heartbeat): 100ms aceso a cada 1s (economiza bateria)
+  // Desconectado: pulso heartbeat de 100ms a cada 1s (economiza bateria)
   uint32_t intervalo = ligado ? 100 : 900;
   if (uint32_t(agora - ultimoPisca) >= intervalo) {
     ultimoPisca = agora;
@@ -100,15 +114,22 @@ void lerFSRs() {
     adcMedia[i] = somas[i] / quantidadeFiltro;
 
 #if HABILITAR_TARA
+    int liq = 0;
     if (taraConcluida) {
-      int liq = adcMedia[i] - adcTara[i];
-      adcLiquido[i] = (liq > 0) ? liq : 0;
+      liq = adcMedia[i] - adcTara[i];
+      if (liq < 0) liq = 0;
     } else {
-      adcLiquido[i] = adcMedia[i];
+      liq = adcMedia[i];
     }
+    adcLiquido[i] = liq;
 #else
     adcLiquido[i] = adcMedia[i];
 #endif
+
+    // Aplica o fator de equiparacao sobre o valor liquido (após tara)
+    int eq = (int)round(adcLiquido[i] * FATORES_EQUIPARACAO[i]);
+    if (eq > 4095) eq = 4095; // Limita ao teto maximo de 12 bits
+    adcEquiparado[i] = eq;
   }
   indiceFiltro = (indiceFiltro + 1) % NUM_AMOSTRAS;
 }
@@ -121,7 +142,7 @@ void imprimirCSV(uint32_t agora, uint32_t intervalo) {
   Serial.print(sequencia);
   for (uint8_t i = 0; i < 3; ++i) {
     Serial.print(','); Serial.print(adcBruto[i]);
-    Serial.print(','); Serial.print(adcMedia[i]);
+    Serial.print(','); Serial.print(adcEquiparado[i]); // Valor equalizado final
     Serial.print(','); Serial.print(milivolts[i]);
   }
   Serial.println();
@@ -130,7 +151,7 @@ void imprimirCSV(uint32_t agora, uint32_t intervalo) {
 #if HABILITAR_BLE
 void inicializarBLE() {
   BLEDevice::init("Palmilha_v5.0");
-  BLEDevice::setMTU(185); // MTU local
+  BLEDevice::setMTU(185);
   servidorBLE = BLEDevice::createServer();
   servidorBLE->advertiseOnDisconnect(true);
   BLEService *servico = servidorBLE->createService(UUID_SERVICO);
@@ -141,17 +162,16 @@ void inicializarBLE() {
   BLEAdvertising *anuncio = BLEDevice::getAdvertising();
   anuncio->addServiceUUID(UUID_SERVICO);
   anuncio->setScanResponse(true);
-  anuncio->setMinPreferred(0x06); // Ajuda na descoberta por smartphones Android/iOS
+  anuncio->setMinPreferred(0x06);
   anuncio->setMinPreferred(0x12);
   BLEDevice::startAdvertising();
 }
 
 void publicarBLE(uint32_t agora) {
-  // Envia JSON com valores liquidos, raw e tara para a interface web.
-  // temp e umid enviados como null pois os sensores foram desativados.
-  String pacote = "{\"calcaneo\":" + String(adcLiquido[0]) +
-                  ",\"meta1\":" + String(adcLiquido[1]) +
-                  ",\"meta5\":" + String(adcLiquido[2]) +
+  // Envia valores equalizados para a interface web
+  String pacote = "{\"calcaneo\":" + String(adcEquiparado[0]) +
+                  ",\"meta1\":" + String(adcEquiparado[1]) +
+                  ",\"meta5\":" + String(adcEquiparado[2]) +
                   ",\"calc_raw\":" + String(adcMedia[0]) +
                   ",\"tara_calc\":" + String(adcTara[0]) +
                   ",\"temp\":null,\"umid\":null" +
@@ -176,7 +196,7 @@ void setup() {
   Serial.println("# ========================================================");
   Serial.println("# Palmilha bancada - LOLIN32 V1.0.0");
   Serial.println("# Mapeamento FSR: Calcaneo=GPIO 36 (VP) | M1=GPIO 33 | M5=GPIO 39 (VN)");
-  Serial.println("# FSR Calcaneo NOVO - Medicoes diretas do zero (Atenuacao 11dB padrao)");
+  Serial.println("# Equiparacao ativa: Calcaneo x7.647 | M1 x1.444 | M5 x1.000");
   Serial.println("# Sensores AHT10 desativados/removidos");
   Serial.println("# ========================================================");
   
@@ -218,11 +238,11 @@ void setup() {
 #endif
 
   ultimaAmostra = millis();
-  Serial.println("t_ms,dt_ms,seq,calc_raw,calc_media,calc_mV,m1_raw,m1_media,m1_mV,m5_raw,m5_media,m5_mV");
+  Serial.println("t_ms,dt_ms,seq,calc_raw,calc_eq,calc_mV,m1_raw,m1_eq,m1_mV,m5_raw,m5_eq,m5_mV");
 }
 
 void loop() {
-  atualizarLedStatus(); // Gerencia indicador de alimentacao / conexao BLE
+  atualizarLedStatus();
   uint32_t agora = millis();
   uint32_t intervalo = uint32_t(agora - ultimaAmostra);
   if (intervalo >= PERIODO_FSR_MS) {
