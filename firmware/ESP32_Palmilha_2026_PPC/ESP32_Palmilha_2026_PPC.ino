@@ -33,7 +33,8 @@ uint32_t ultimoAvisoMTU  = 0;
 const uint8_t PINOS_FSR[3] = {36, 33, 39};
 
 // ── FATORES DE CALIBRACAO E GANHO (PGA DIGITAL) ─────────────────────────────
-float GANHOS_FSR[3] = {10.0f, 1.0f, 1.0f};
+// [0]=Calcaneo (30x para equiparar a M1/M5) | [1]=M1 (1x) | [2]=M5 (1x)
+float GANHOS_FSR[3] = {30.0f, 1.0f, 1.0f};
 
 // ── INDICADOR DE STATUS / ALIMENTACAO (BATERIA) ──────────────────────────────
 const uint8_t PINO_LED_STATUS = 5;
