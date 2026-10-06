@@ -474,6 +474,11 @@ function onBleDataReceived(event) {
     };
 
     render(data);
+
+    // Gravação contínua no celular para ensaio de autonomia de bateria
+    if (batteryTrial.isRecording) {
+      recordBatterySample(data);
+    }
   } catch (e) {
     console.warn('Falha no parsing do pacote BLE:', e);
   }
@@ -559,14 +564,19 @@ function processSerialText(chunk) {
       const tempVal   = parts[13] !== 'NA' ? parseFloat(parts[13]) : state.environment.temp;
       const umidVal   = parts[14] !== 'NA' ? parseFloat(parts[14]) : state.environment.umid;
 
-      render({
+      const serialPayload = {
         calcaneo: calcMedia,
         meta1: m1Media,
         meta5: m5Media,
         temp: tempVal,
         umid: umidVal,
         seq: seqVal
-      });
+      };
+      render(serialPayload);
+
+      if (batteryTrial.isRecording) {
+        recordBatterySample(serialPayload);
+      }
     }
   }
 }
@@ -617,6 +627,11 @@ function setConnectionState(type, isConnected) {
 function onDeviceDisconnected() {
   setConnectionState('none', false);
   recordAlertEvent('warn', 'Dispositivo BLE desconectado.');
+
+  // Se o ensaio de autonomia da bateria estava ativo, o desligamento do ESP32 indica esgotamento da bateria!
+  if (batteryTrial.isRecording) {
+    finishBatteryTrialDueToDischarge();
+  }
 }
 
 async function disconnectAll() {
@@ -710,6 +725,664 @@ window.addEventListener('touchmove', (e) => {
   }
 }, { passive: true });
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   renderInitialState();
+  await initBatteryTrial();
 });
+
+// ==========================================================================
+// ENSAIO DE AUTONOMIA DA BATERIA & GRAVAÇÃO LOCAL NO CELULAR (MESTRADO PPGTS)
+// Armazenamento resiliente na memória local (IndexedDB + Cache localStorage)
+// Exportação direta em CSV, envio por e-mail e compartilhamento nativo móvel
+// ==========================================================================
+
+const batteryTrial = {
+  isRecording: false,
+  isFinished: false,
+  startTime: null,
+  endTime: null,
+  timerInterval: null,
+  samples: [],
+  db: null,
+  wakeLock: null,
+  lastSeq: null,
+  lastTimestamp: null,
+  peakM1: 0,
+  peakM5: 0,
+  peakCalc: 0,
+  storageKey: 'palmilha_battery_trial_samples_v1',
+  metaKey: 'palmilha_battery_trial_meta_v1'
+};
+
+// ── BANCO DE DADOS INDEXEDDB LOCAL DO CELULAR ─────────────────────────────
+function openBatteryDB() {
+  return new Promise((resolve) => {
+    if (!window.indexedDB) {
+      console.warn('IndexedDB não suportado neste navegador. Usando localStorage.');
+      resolve(null);
+      return;
+    }
+    const request = indexedDB.open('InsoleBatteryDB', 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('sessions')) {
+        db.createObjectStore('sessions');
+      }
+    };
+    request.onsuccess = (e) => {
+      batteryTrial.db = e.target.result;
+      resolve(batteryTrial.db);
+    };
+    request.onerror = (err) => {
+      console.warn('Erro ao abrir IndexedDB:', err);
+      resolve(null);
+    };
+  });
+}
+
+function persistBatteryData() {
+  const meta = {
+    isRecording: batteryTrial.isRecording,
+    isFinished: batteryTrial.isFinished,
+    startTime: batteryTrial.startTime,
+    endTime: batteryTrial.endTime,
+    sampleCount: batteryTrial.samples.length,
+    peakM1: batteryTrial.peakM1,
+    peakM5: batteryTrial.peakM5,
+    peakCalc: batteryTrial.peakCalc,
+    lastSeq: batteryTrial.lastSeq,
+    lastTimestamp: batteryTrial.lastTimestamp,
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    localStorage.setItem(batteryTrial.metaKey, JSON.stringify(meta));
+  } catch (e) {
+    console.warn('Falha ao gravar meta no localStorage:', e);
+  }
+
+  // Persiste array de amostras no IndexedDB (capacidade para centenas de milhares de amostras)
+  if (batteryTrial.db) {
+    try {
+      const tx = batteryTrial.db.transaction('sessions', 'readwrite');
+      const store = tx.objectStore('sessions');
+      store.put(batteryTrial.samples, 'current_battery_trial');
+    } catch (e) {
+      console.warn('Erro ao gravar no IndexedDB:', e);
+    }
+  } else {
+    // Fallback: se não tiver IndexedDB, tenta salvar até 10.000 amostras no localStorage
+    try {
+      if (batteryTrial.samples.length <= 10000) {
+        localStorage.setItem(batteryTrial.storageKey, JSON.stringify(batteryTrial.samples));
+      }
+    } catch (e) {}
+  }
+}
+
+async function restorePreviousBatterySession() {
+  try {
+    const metaStr = localStorage.getItem(batteryTrial.metaKey);
+    if (!metaStr) return;
+    const meta = JSON.parse(metaStr);
+    if (!meta || !meta.sampleCount) return;
+
+    batteryTrial.startTime = meta.startTime;
+    batteryTrial.endTime = meta.endTime;
+    batteryTrial.isFinished = meta.isFinished ?? true;
+    batteryTrial.peakM1 = meta.peakM1 ?? 0;
+    batteryTrial.peakM5 = meta.peakM5 ?? 0;
+    batteryTrial.peakCalc = meta.peakCalc ?? 0;
+    batteryTrial.lastSeq = meta.lastSeq ?? null;
+    batteryTrial.lastTimestamp = meta.lastTimestamp ?? null;
+
+    if (batteryTrial.db) {
+      const tx = batteryTrial.db.transaction('sessions', 'readonly');
+      const store = tx.objectStore('sessions');
+      const req = store.get('current_battery_trial');
+      req.onsuccess = () => {
+        if (req.result && Array.isArray(req.result)) {
+          batteryTrial.samples = req.result;
+        }
+        updateBatteryTrialUI();
+      };
+      req.onerror = () => updateBatteryTrialUI();
+    } else {
+      const cached = localStorage.getItem(batteryTrial.storageKey);
+      if (cached) {
+        batteryTrial.samples = JSON.parse(cached);
+      }
+      updateBatteryTrialUI();
+    }
+  } catch (err) {
+    console.warn('Erro ao restaurar sessão anterior:', err);
+  }
+}
+
+// ── GESTÃO DO SCREEN WAKE LOCK (TELA SEMPRE ACESA NO CELULAR) ──────────────
+async function requestWakeLock() {
+  const badgeWake = document.getElementById('badge-wakelock');
+  if ('wakeLock' in navigator) {
+    try {
+      batteryTrial.wakeLock = await navigator.wakeLock.request('screen');
+      if (badgeWake) badgeWake.classList.add('active');
+      batteryTrial.wakeLock.addEventListener('release', () => {
+        if (badgeWake) badgeWake.classList.remove('active');
+      });
+    } catch (err) {
+      console.warn('Wake Lock não autorizado ou indisponível:', err);
+      if (badgeWake) badgeWake.classList.remove('active');
+    }
+  }
+}
+
+function releaseWakeLock() {
+  const badgeWake = document.getElementById('badge-wakelock');
+  if (batteryTrial.wakeLock) {
+    try { batteryTrial.wakeLock.release(); } catch (e) {}
+    batteryTrial.wakeLock = null;
+  }
+  if (badgeWake) badgeWake.classList.remove('active');
+}
+
+// ── REGISTRO DE CADA AMOSTRA RECEBIDA ──────────────────────────────────────
+function recordBatterySample(data) {
+  if (!batteryTrial.isRecording) return;
+
+  const now = Date.now();
+  const elapsedMs = batteryTrial.startTime ? (now - batteryTrial.startTime) : 0;
+
+  const m1 = Math.round(data.meta1 ?? 0);
+  const m5 = Math.round(data.meta5 ?? 0);
+  const calc = Math.round(data.calcaneo ?? 0);
+
+  const sample = {
+    t_ms: elapsedMs,
+    seq: data.seq ?? (batteryTrial.samples.length + 1),
+    calc: calc,
+    m1: m1,
+    m5: m5,
+    temp: (data.temp != null && !isNaN(data.temp)) ? Number(data.temp).toFixed(1) : '',
+    umid: (data.umid != null && !isNaN(data.umid)) ? Number(data.umid).toFixed(1) : '',
+    timeStr: new Date().toLocaleTimeString('pt-BR')
+  };
+
+  batteryTrial.samples.push(sample);
+  batteryTrial.lastSeq = sample.seq;
+  batteryTrial.lastTimestamp = sample.timeStr;
+
+  if (m1 > batteryTrial.peakM1) batteryTrial.peakM1 = m1;
+  if (m5 > batteryTrial.peakM5) batteryTrial.peakM5 = m5;
+  if (calc > batteryTrial.peakCalc) batteryTrial.peakCalc = calc;
+
+  // Persiste a cada 50 amostras (~5 segundos a 10 Hz) no armazenamento do telefone
+  if (batteryTrial.samples.length % 50 === 0) {
+    persistBatteryData();
+  }
+
+  // Atualização em tempo real das métricas da barra
+  updateBatteryTrialLiveMetrics();
+}
+
+function updateBatteryTrialLiveMetrics() {
+  const countEl = document.getElementById('battery-samples-count');
+  const rateEl = document.getElementById('battery-rate-hz');
+  const sizeEl = document.getElementById('battery-storage-size');
+  const peaksEl = document.getElementById('battery-peaks-summary');
+  const lastSeqEl = document.getElementById('battery-last-seq');
+
+  const total = batteryTrial.samples.length;
+  if (countEl) countEl.textContent = total.toLocaleString('pt-BR');
+
+  // Cálculo da frequência instantânea média em Hz
+  if (batteryTrial.startTime) {
+    const elapsedSec = Math.max(1, (Date.now() - batteryTrial.startTime) / 1000);
+    const hz = (total / elapsedSec).toFixed(1);
+    if (rateEl) rateEl.textContent = `${hz} Hz`;
+  }
+
+  // Estimativa do tamanho de memória ocupada no celular
+  const estimatedKb = ((total * 55) / 1024).toFixed(1);
+  if (sizeEl) sizeEl.textContent = `${estimatedKb} KB`;
+
+  if (peaksEl) {
+    peaksEl.textContent = `M1: ${batteryTrial.peakM1} | M5: ${batteryTrial.peakM5} | C: ${batteryTrial.peakCalc}`;
+  }
+
+  if (lastSeqEl) {
+    lastSeqEl.textContent = `Seq: ${batteryTrial.lastSeq ?? '--'} (${batteryTrial.lastTimestamp ?? ''})`;
+  }
+}
+
+// ── CRONÔMETRO DIGITAL ────────────────────────────────────────────────────
+function formatTimer(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  return [
+    String(hours).padStart(2, '0'),
+    String(minutes).padStart(2, '0'),
+    String(seconds).padStart(2, '0')
+  ].join(':');
+}
+
+function updateBatteryTimerDisplay() {
+  const timerEl = document.getElementById('battery-timer');
+  if (!timerEl) return;
+  if (!batteryTrial.startTime) {
+    timerEl.textContent = '00:00:00';
+    return;
+  }
+  const end = batteryTrial.endTime || Date.now();
+  const elapsed = Math.max(0, end - batteryTrial.startTime);
+  timerEl.textContent = formatTimer(elapsed);
+}
+
+// ── INÍCIO, PARADA E FINALIZAÇÃO DO ENSAIO ─────────────────────────────────
+async function startBatteryTrial() {
+  if (!state.isConnected) {
+    const proceed = confirm('A palmilha ainda não está conectada via BLE. Deseja iniciar o cronômetro do ensaio agora mesmo?');
+    if (!proceed) return;
+  }
+
+  batteryTrial.isRecording = true;
+  batteryTrial.isFinished = false;
+  batteryTrial.startTime = Date.now();
+  batteryTrial.endTime = null;
+  batteryTrial.samples = [];
+  batteryTrial.peakM1 = 0;
+  batteryTrial.peakM5 = 0;
+  batteryTrial.peakCalc = 0;
+  batteryTrial.lastSeq = null;
+
+  // Limpa alerta anterior
+  const banner = document.getElementById('battery-alert-banner');
+  if (banner) banner.style.display = 'none';
+
+  // Aciona tela sempre ativa (Wake Lock) no celular
+  await requestWakeLock();
+
+  // Inicia tick do cronômetro a cada 1 segundo
+  if (batteryTrial.timerInterval) clearInterval(batteryTrial.timerInterval);
+  batteryTrial.timerInterval = setInterval(() => {
+    updateBatteryTimerDisplay();
+  }, 1000);
+
+  persistBatteryData();
+  updateBatteryTrialUI();
+
+  recordAlertEvent('ok', 'Ensaio de autonomia da bateria iniciado! Gravando dados...');
+}
+
+function stopBatteryTrialManual() {
+  batteryTrial.isRecording = false;
+  batteryTrial.isFinished = true;
+  batteryTrial.endTime = Date.now();
+
+  if (batteryTrial.timerInterval) {
+    clearInterval(batteryTrial.timerInterval);
+    batteryTrial.timerInterval = null;
+  }
+  updateBatteryTimerDisplay();
+  releaseWakeLock();
+  persistBatteryData();
+  updateBatteryTrialUI();
+
+  recordAlertEvent('warn', 'Ensaio de bateria interrompido manualmente pelo usuário.');
+}
+
+// QUANDO O ESP32 DESLIGA POR FALTA DE BATERIA (EVENTO GATTSERVERDISCONNECTED)
+function finishBatteryTrialDueToDischarge() {
+  batteryTrial.isRecording = false;
+  batteryTrial.isFinished = true;
+  batteryTrial.endTime = Date.now();
+
+  if (batteryTrial.timerInterval) {
+    clearInterval(batteryTrial.timerInterval);
+    batteryTrial.timerInterval = null;
+  }
+  updateBatteryTimerDisplay();
+  releaseWakeLock();
+  persistBatteryData();
+  updateBatteryTrialUI();
+
+  // Vibração de alerta no celular (se suportado pelo hardware móvel)
+  if (navigator.vibrate) {
+    try { navigator.vibrate([300, 150, 300, 150, 600]); } catch (e) {}
+  }
+
+  // Exibe banner especial de ensaio concluído por esgotamento de bateria
+  const banner = document.getElementById('battery-alert-banner');
+  const alertTitle = document.getElementById('battery-alert-title');
+  const alertDesc = document.getElementById('battery-alert-desc');
+  const summary = getBatteryTrialSummary();
+
+  if (banner && alertTitle && alertDesc) {
+    banner.style.display = 'flex';
+    alertTitle.textContent = `🔋 Bateria Esgotada! Autonomia Total: ${summary.formattedDuration}`;
+    alertDesc.textContent = `O ESP32 desconectou por corte de tensão da bateria. Foram gravadas ${summary.totalSamples.toLocaleString('pt-BR')} amostras com segurança no armazenamento local deste telefone (${summary.avgHz} Hz). Baixe o CSV ou envie por e-mail abaixo.`;
+  }
+
+  recordAlertEvent('danger', `Ensaio de bateria concluído! Autonomia comprovada: ${summary.formattedDuration}.`);
+}
+
+function clearBatterySession() {
+  if (batteryTrial.isRecording) {
+    if (!confirm('O teste de bateria está em andamento. Deseja realmente interromper e limpar os dados?')) {
+      return;
+    }
+    stopBatteryTrialManual();
+  } else if (batteryTrial.samples.length > 0) {
+    if (!confirm('Deseja realmente apagar os dados deste ensaio? Certifique-se de ter baixado o CSV antes.')) {
+      return;
+    }
+  }
+
+  batteryTrial.samples = [];
+  batteryTrial.startTime = null;
+  batteryTrial.endTime = null;
+  batteryTrial.isFinished = false;
+  batteryTrial.peakM1 = 0;
+  batteryTrial.peakM5 = 0;
+  batteryTrial.peakCalc = 0;
+  batteryTrial.lastSeq = null;
+
+  try {
+    localStorage.removeItem(batteryTrial.metaKey);
+    localStorage.removeItem(batteryTrial.storageKey);
+    if (batteryTrial.db) {
+      const tx = batteryTrial.db.transaction('sessions', 'readwrite');
+      tx.objectStore('sessions').clear();
+    }
+  } catch (e) {}
+
+  const banner = document.getElementById('battery-alert-banner');
+  if (banner) banner.style.display = 'none';
+
+  updateBatteryTimerDisplay();
+  updateBatteryTrialUI();
+}
+
+// ── ATUALIZAÇÃO GERAL DA UI DO ENSAIO DE BATERIA ───────────────────────────
+function updateBatteryTrialUI() {
+  const card = document.getElementById('card-battery-trial');
+  const badgeStatus = document.getElementById('badge-battery-status');
+  const btnToggle = document.getElementById('btn-battery-toggle');
+  const btnToggleText = document.getElementById('btn-battery-toggle-text');
+  const btnDownload = document.getElementById('btn-battery-download');
+  const btnShare = document.getElementById('btn-battery-share');
+  const btnEmail = document.getElementById('btn-battery-email');
+  const storageStatus = document.getElementById('battery-storage-status');
+
+  const hasSamples = batteryTrial.samples.length > 0;
+
+  // Botões de exportação habilitados se houver amostras salvas
+  if (btnDownload) btnDownload.disabled = !hasSamples;
+  if (btnShare) btnShare.disabled = !hasSamples;
+  if (btnEmail) btnEmail.disabled = !hasSamples;
+
+  updateBatteryTimerDisplay();
+  updateBatteryTrialLiveMetrics();
+
+  if (storageStatus) {
+    storageStatus.textContent = batteryTrial.db ? 'IndexedDB ativo (Seguro)' : 'Armazenamento local';
+  }
+
+  if (batteryTrial.isRecording) {
+    if (card) {
+      card.classList.add('is-recording');
+      card.classList.remove('is-finished');
+    }
+    if (badgeStatus) {
+      badgeStatus.className = 'badge-battery-status status-recording';
+      badgeStatus.textContent = '🔴 Gravando (Bateria em uso)';
+    }
+    if (btnToggle) {
+      btnToggle.classList.add('is-recording');
+    }
+    if (btnToggleText) {
+      btnToggleText.textContent = 'Parar Gravação';
+    }
+  } else if (batteryTrial.isFinished && hasSamples) {
+    if (card) {
+      card.classList.remove('is-recording');
+      card.classList.add('is-finished');
+    }
+    if (badgeStatus) {
+      badgeStatus.className = 'badge-battery-status status-finished';
+      badgeStatus.textContent = '🔋 Bateria Esgotada / Concluído';
+    }
+    if (btnToggle) {
+      btnToggle.classList.remove('is-recording');
+    }
+    if (btnToggleText) {
+      btnToggleText.textContent = 'Iniciar Novo Teste';
+    }
+  } else {
+    if (card) {
+      card.classList.remove('is-recording');
+      card.classList.remove('is-finished');
+    }
+    if (badgeStatus) {
+      badgeStatus.className = 'badge-battery-status status-idle';
+      badgeStatus.textContent = '⚪ Pronto para Iniciar';
+    }
+    if (btnToggle) {
+      btnToggle.classList.remove('is-recording');
+    }
+    if (btnToggleText) {
+      btnToggleText.textContent = 'Iniciar Teste de Bateria';
+    }
+  }
+}
+
+// ── ESTATÍSTICAS E RESUMO DO ENSAIO ───────────────────────────────────────
+function getBatteryTrialSummary() {
+  const total = batteryTrial.samples.length;
+  const start = batteryTrial.startTime ? new Date(batteryTrial.startTime) : new Date();
+  const end = batteryTrial.endTime ? new Date(batteryTrial.endTime) : new Date();
+  const elapsedMs = Math.max(0, end.getTime() - start.getTime());
+  const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
+  const hz = total > 0 ? (total / elapsedSec).toFixed(1) : '0.0';
+
+  const d = start;
+  const dateStr = d.toISOString().slice(0, 10).replace(/-/g, '') + '_' + 
+                  String(d.getHours()).padStart(2, '0') + 
+                  String(d.getMinutes()).padStart(2, '0');
+  const filename = `ensaio_bateria_palmilha_${dateStr}.csv`;
+
+  return {
+    startedAt: start.toLocaleString('pt-BR'),
+    endedAt: end.toLocaleString('pt-BR'),
+    durationSeconds: elapsedSec,
+    formattedDuration: formatTimer(elapsedMs),
+    totalSamples: total,
+    avgHz: hz,
+    peakM1: batteryTrial.peakM1,
+    peakM5: batteryTrial.peakM5,
+    peakCalc: batteryTrial.peakCalc,
+    statusText: batteryTrial.isFinished ? 'Finalizado (Esgotamento da Bateria)' : 'Em andamento',
+    filename: filename
+  };
+}
+
+// ── GERAÇÃO DO ARQUIVO CSV PADRÃO CIENTÍFICO ──────────────────────────────
+function generateCsvContent() {
+  const meta = getBatteryTrialSummary();
+  let csv = `# ====================================================================\n`;
+  csv += `# ENSAIO DE AUTONOMIA DA BATERIA - PALMILHA INSTRUMENTADA (UERJ)\n`;
+  csv += `# Projeto: Monitor Plantar Preventivo de Úlceras no Pé Diabético\n`;
+  csv += `# Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)\n`;
+  csv += `# Data e Hora de Início: ${meta.startedAt}\n`;
+  csv += `# Data e Hora de Término: ${meta.endedAt}\n`;
+  csv += `# Autonomia Total Comprovada: ${meta.formattedDuration} (${meta.durationSeconds} segundos)\n`;
+  csv += `# Total de Amostras Gravadas no Celular: ${meta.totalSamples}\n`;
+  csv += `# Frequência Média de Transmissão BLE: ${meta.avgHz} Hz\n`;
+  csv += `# Carga Máxima (M1 - 1º Metatarso): ${meta.peakM1} ADC\n`;
+  csv += `# Carga Máxima (M5 - 5º Metatarso): ${meta.peakM5} ADC\n`;
+  csv += `# Carga Máxima (Calcâneo): ${meta.peakCalc} ADC\n`;
+  csv += `# ====================================================================\n`;
+  csv += `t_ms,dt_ms,seq,timestamp_local,m1_adc,m5_adc,calcaneo_adc,temp_c,umid_pct\n`;
+
+  let prevTime = 0;
+  for (let i = 0; i < batteryTrial.samples.length; i++) {
+    const s = batteryTrial.samples[i];
+    const dt = (i === 0) ? 0 : (s.t_ms - prevTime);
+    prevTime = s.t_ms;
+    csv += `${s.t_ms},${dt},${s.seq},"${s.timeStr}",${s.m1},${s.m5},${s.calc},${s.temp},${s.umid}\n`;
+  }
+  return csv;
+}
+
+// ── 1. BAIXAR ARQUIVO CSV NO CELULAR (DOWNLOAD DIRETO) ────────────────────
+function downloadBatteryCsv() {
+  if (batteryTrial.samples.length === 0) {
+    alert('Nenhum dado registrado para exportação.');
+    return;
+  }
+  const summary = getBatteryTrialSummary();
+  const csv = generateCsvContent();
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = summary.filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+// ── 2. COMPARTILHAR DADOS VIA WEB SHARE (WHATSAPP, DRIVE, ARQUIVO) ────────
+async function shareBatteryData() {
+  if (batteryTrial.samples.length === 0) {
+    alert('Nenhum dado registrado para compartilhar.');
+    return;
+  }
+
+  const summary = getBatteryTrialSummary();
+  const csv = generateCsvContent();
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const file = new File([blob], summary.filename, { type: 'text/csv' });
+
+  const shareText = `Ensaio de Autonomia da Bateria - Palmilha Inteligente (UERJ)\n` +
+                    `Autonomia: ${summary.formattedDuration}\n` +
+                    `Amostras: ${summary.totalSamples.toLocaleString('pt-BR')} (${summary.avgHz} Hz)\n` +
+                    `Picos: M1=${summary.peakM1} | M5=${summary.peakM5} | Calc=${summary.peakCalc} ADC`;
+
+  // Se o navegador móvel suporta compartilhamento direto de arquivos (Android Chrome / iOS Safari)
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        title: 'Ensaio de Bateria - Palmilha Inteligente',
+        text: shareText,
+        files: [file]
+      });
+      return;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn('Erro ao compartilhar via Web Share:', err);
+      } else {
+        return; // Usuário fechou gaveta de compartilhamento
+      }
+    }
+  }
+
+  // Fallback: compartilha resumo em texto e dispara download do CSV
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: 'Ensaio de Bateria - Palmilha Inteligente',
+        text: shareText
+      });
+      downloadBatteryCsv();
+      return;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn('Erro ao compartilhar texto:', err);
+      }
+    }
+  }
+
+  // Fallback padrão para navegadores desktop
+  downloadBatteryCsv();
+}
+
+// ── 3. ENVIAR POR E-MAIL COM RELATÓRIO EXECUTIVO COMPLETO ─────────────────
+function sendBatteryEmail() {
+  if (batteryTrial.samples.length === 0) {
+    alert('Nenhum dado registrado para enviar por e-mail.');
+    return;
+  }
+
+  const summary = getBatteryTrialSummary();
+
+  // Garante que o arquivo CSV completo seja baixado na pasta Downloads do celular
+  downloadBatteryCsv();
+
+  const subject = encodeURIComponent(`[Palmilha UERJ] Relatório de Teste de Bateria - Autonomia: ${summary.formattedDuration}`);
+  const bodyText = `RELATÓRIO DE ENSAIO DE AUTONOMIA DA BATERIA
+Projeto: Palmilha Instrumentada para Monitoramento e Prevenção do Pé Diabético
+Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)
+
+--------------------------------------------------
+RESUMO EXECUTIVO DO ENSAIO
+--------------------------------------------------
+• Status: ${summary.statusText}
+• Início do Teste: ${summary.startedAt}
+• Término / Desligamento: ${summary.endedAt}
+• Autonomia Total da Bateria: ${summary.formattedDuration} (${summary.durationSeconds} segundos)
+• Total de Amostras Coletadas: ${summary.totalSamples.toLocaleString('pt-BR')}
+• Frequência Média de Transmissão: ${summary.avgHz} Hz
+• Carga Máxima (M1 - 1º Metatarso): ${summary.peakM1} ADC
+• Carga Máxima (M5 - 5º Metatarso): ${summary.peakM5} ADC
+• Carga Máxima (Calcâneo): ${summary.peakCalc} ADC
+
+--------------------------------------------------
+DADOS BRUTOS EM CSV
+--------------------------------------------------
+O arquivo completo de telemetria ("${summary.filename}") com todas as ${summary.totalSamples.toLocaleString('pt-BR')} amostras foi baixado com sucesso na pasta de Downloads deste celular.
+Para incluir no banco de dados da dissertação ou gerar gráficos de descarga, anexe o arquivo baixado a este e-mail.
+
+Dispositivo: ESP32 BLE (Palmilha_v5.0)
+Gerado automaticamente pelo aplicativo Monitor Plantar Inteligente.`;
+
+  const body = encodeURIComponent(bodyText);
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+// ── INICIALIZAÇÃO DOS BOTÕES E EVENTOS DO TESTE DE BATERIA ────────────────
+async function initBatteryTrial() {
+  await openBatteryDB();
+  await restorePreviousBatterySession();
+
+  const btnToggle = document.getElementById('btn-battery-toggle');
+  btnToggle?.addEventListener('click', () => {
+    if (batteryTrial.isRecording) {
+      stopBatteryTrialManual();
+    } else {
+      startBatteryTrial();
+    }
+  });
+
+  const btnClear = document.getElementById('btn-battery-clear');
+  btnClear?.addEventListener('click', () => {
+    clearBatterySession();
+  });
+
+  const btnDownload = document.getElementById('btn-battery-download');
+  btnDownload?.addEventListener('click', () => {
+    downloadBatteryCsv();
+  });
+
+  const btnShare = document.getElementById('btn-battery-share');
+  btnShare?.addEventListener('click', () => {
+    shareBatteryData();
+  });
+
+  const btnEmail = document.getElementById('btn-battery-email');
+  btnEmail?.addEventListener('click', () => {
+    sendBatteryEmail();
+  });
+}

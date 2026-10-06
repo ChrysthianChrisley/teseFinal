@@ -79,6 +79,109 @@
       </div>
     </section>
 
+    <!-- 1.1 ENSAIO DE AUTONOMIA DA BATERIA & GRAVAÇÃO LOCAL (MESTRADO) -->
+    <section class="card card-battery-trial" id="card-battery-trial">
+      <div class="battery-card-header">
+        <div class="battery-header-left">
+          <div class="battery-icon-pill" id="battery-icon-pill">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="16" height="10" rx="2" ry="2"/>
+              <line x1="22" y1="11" x2="22" y2="13"/>
+              <line x1="6" y1="11" x2="6" y2="13"/>
+              <line x1="10" y1="11" x2="10" y2="13"/>
+            </svg>
+          </div>
+          <div>
+            <h3 class="battery-title">Ensaio de Autonomia da Bateria</h3>
+            <p class="battery-subtitle">Gravação contínua no celular até a descarga completa do ESP32</p>
+          </div>
+        </div>
+        <div class="battery-header-badges">
+          <span class="badge-battery-status status-idle" id="badge-battery-status">⚪ Pronto para Iniciar</span>
+          <span class="badge-wakelock" id="badge-wakelock" title="Mantém a tela acesa durante o teste para o sistema não suspender o Bluetooth">☀️ Tela Ativa</span>
+        </div>
+      </div>
+
+      <!-- MÉTRICAS DO ENSAIO EM TEMPO REAL -->
+      <div class="battery-metrics-grid">
+        <div class="battery-metric-item">
+          <span class="battery-metric-label">Tempo de Autonomia</span>
+          <div class="battery-metric-val timer-val" id="battery-timer">00:00:00</div>
+          <span class="battery-metric-sub" id="battery-timer-sub">Duração do ensaio</span>
+        </div>
+
+        <div class="battery-metric-item">
+          <span class="battery-metric-label">Amostras Registradas</span>
+          <div class="battery-metric-val" id="battery-samples-count">0</div>
+          <span class="battery-metric-sub" id="battery-rate-hz">0.0 Hz</span>
+        </div>
+
+        <div class="battery-metric-item">
+          <span class="battery-metric-label">Armazenamento no Celular</span>
+          <div class="battery-metric-val" id="battery-storage-size">0.0 KB</div>
+          <span class="battery-metric-sub" id="battery-storage-status">Memória local segura</span>
+        </div>
+
+        <div class="battery-metric-item">
+          <span class="battery-metric-label">Picos nos Sensores</span>
+          <div class="battery-metric-val val-small" id="battery-peaks-summary">M1: 0 | M5: 0 | C: 0</div>
+          <span class="battery-metric-sub" id="battery-last-seq">Seq: --</span>
+        </div>
+      </div>
+
+      <!-- BANNER DE AVISO / CONCLUSÃO DO TESTE -->
+      <div class="battery-alert-banner" id="battery-alert-banner" style="display: none;">
+        <div class="battery-alert-icon" id="battery-alert-icon">🔋</div>
+        <div class="battery-alert-content">
+          <strong id="battery-alert-title">Ensaio Concluído com Sucesso!</strong>
+          <p id="battery-alert-desc">O ESP32 desconectou por corte de tensão da bateria. Todos os dados foram gravados na memória do celular. Baixe o CSV ou envie por e-mail abaixo.</p>
+        </div>
+      </div>
+
+      <!-- BOTÕES DE CONTROLE E EXPORTAÇÃO -->
+      <div class="battery-actions-row">
+        <div class="battery-main-buttons">
+          <button id="btn-battery-toggle" class="btn btn-primary btn-record">
+            <span class="rec-dot" id="battery-rec-dot"></span>
+            <span id="btn-battery-toggle-text">Iniciar Teste de Bateria</span>
+          </button>
+          <button id="btn-battery-clear" class="btn btn-secondary" title="Limpar dados e reiniciar ensaio">
+            Limpar Sessão
+          </button>
+        </div>
+
+        <div class="battery-export-buttons">
+          <button id="btn-battery-download" class="btn btn-secondary" disabled title="Baixar arquivo CSV no celular">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span>Baixar CSV</span>
+          </button>
+
+          <button id="btn-battery-share" class="btn btn-secondary" disabled title="Compartilhar CSV via WhatsApp, Google Drive ou outros apps">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3"/>
+              <circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            <span>Compartilhar</span>
+          </button>
+
+          <button id="btn-battery-email" class="btn btn-primary btn-email" disabled title="Enviar relatório e arquivo por E-mail">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+              <polyline points="22,6 12,13 2,6"/>
+            </svg>
+            <span>Enviar por E-mail</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- 2. GRID PRINCIPAL: MAPA DO PÉ + CARGA NAS 3 REGIÕES -->
     <div class="grid-plantar">
 
