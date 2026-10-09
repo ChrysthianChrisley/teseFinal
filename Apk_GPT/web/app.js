@@ -1902,6 +1902,13 @@ const footHeatmap = {
   lastM1: 0,
   lastM5: 0,
   lastCalc: 0,
+  targetM1: 0,
+  targetM5: 0,
+  targetCalc: 0,
+  currM1: 0,
+  currM5: 0,
+  currCalc: 0,
+  isRenderingLoop: false,
 
   async init() {
     this.canvas = document.getElementById('foot-heat-canvas');
@@ -1926,7 +1933,7 @@ const footHeatmap = {
     this.isReady = true;
 
     // Renderiza quadro inicial limpo
-    this.render(0, 0, 0);
+    this.render(0, 0, 0, true);
   },
 
   generateLut() {
@@ -2017,11 +2024,69 @@ const footHeatmap = {
     }
   },
 
-  render(m1Val, m5Val, calcVal) {
+  render(m1Val, m5Val, calcVal, immediate = false) {
     if (!this.isReady || !this.ctx) return;
     this.lastM1 = m1Val;
     this.lastM5 = m5Val;
     this.lastCalc = calcVal;
+
+    this.targetM1 = m1Val;
+    this.targetM5 = m5Val;
+    this.targetCalc = calcVal;
+
+    if (immediate) {
+      this.currM1 = m1Val;
+      this.currM5 = m5Val;
+      this.currCalc = calcVal;
+      this.drawCurrentFrame();
+    } else {
+      this.startSmoothLoop();
+    }
+  },
+
+  startSmoothLoop() {
+    if (this.isRenderingLoop) return;
+    this.isRenderingLoop = true;
+
+    const step = () => {
+      if (!this.isReady || !this.ctx) {
+        this.isRenderingLoop = false;
+        return;
+      }
+
+      // Amortecimento exponencial suave (EMA) ~0.22 por frame a 60 FPS
+      const alpha = 0.22;
+      const d1 = this.targetM1 - this.currM1;
+      const d5 = this.targetM5 - this.currM5;
+      const dc = this.targetCalc - this.currCalc;
+
+      const needsUpdate = Math.abs(d1) > 0.4 || Math.abs(d5) > 0.4 || Math.abs(dc) > 0.4;
+
+      if (needsUpdate) {
+        this.currM1 += d1 * alpha;
+        this.currM5 += d5 * alpha;
+        this.currCalc += dc * alpha;
+        this.drawCurrentFrame();
+        requestAnimationFrame(step);
+      } else {
+        if (this.currM1 !== this.targetM1 || this.currM5 !== this.targetM5 || this.currCalc !== this.targetCalc) {
+          this.currM1 = this.targetM1;
+          this.currM5 = this.targetM5;
+          this.currCalc = this.targetCalc;
+          this.drawCurrentFrame();
+        }
+        this.isRenderingLoop = false;
+      }
+    };
+
+    requestAnimationFrame(step);
+  },
+
+  drawCurrentFrame() {
+    if (!this.isReady || !this.ctx) return;
+    const m1Val = this.currM1;
+    const m5Val = this.currM5;
+    const calcVal = this.currCalc;
 
     const W = this.width;
     const H = this.height;
@@ -2029,7 +2094,10 @@ const footHeatmap = {
     const imgData = this.offCtx.createImageData(W, H);
     const d = imgData.data;
 
-    const maxAdc = 650.0;
+    // Escala proporcional ao limiar de perigo configurado (padrão 3200 ADC)
+    const thresh = (typeof getThresholds === 'function') ? getThresholds() : { pressDanger: 3200 };
+    const maxAdc = Math.max(1000, thresh.pressDanger || 3200.0);
+
     const mask = this.footMask;
     const k1 = this.kM1, k5 = this.kM5, kc = this.kCalc;
     const lut = this.lut;
@@ -2219,8 +2287,11 @@ function displayWindowAveragesInReadings({ avgM1, avgM5, avgCalc, maxM1, maxM5, 
     { id: 'calc', avg: avgCalc, max: maxCalc, label: 'Calcâneo' }
   ];
 
+  const thresh = typeof getThresholds === 'function' ? getThresholds() : { pressDanger: 3200 };
+  const span = thresh.pressDanger || 3200;
+
   zones.forEach(z => {
-    const pct = Math.min(100, Math.round((z.avg / 650) * 100));
+    const pct = Math.min(100, Math.round((z.avg / span) * 100));
     const badge = document.getElementById(`val-badge-${z.id}`);
     const meter = document.getElementById(`meter-${z.id}`);
     const intensity = document.getElementById(`intensity-${z.id}`);

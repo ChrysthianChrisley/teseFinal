@@ -705,7 +705,7 @@ input:checked + .slider::before {
   transform: translate(-50%, -50%);
   z-index: 15;
   pointer-events: none;
-  transition: left 0.08s linear, top 0.08s linear;
+  transition: left 0.22s cubic-bezier(0.25, 1, 0.5, 1), top 0.22s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .cop-ring {
