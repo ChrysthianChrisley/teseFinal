@@ -1417,6 +1417,15 @@ input:checked + .slider::before {
   color: var(--text-subtle);
 }
 
+.version-apk-link {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--primary);
+  text-decoration: underline;
+  margin-left: 6px;
+  font-weight: 600;
+}
+
 /* ==========================================================================
    OTIMIZAÇÃO MOBILE: COMPORTAMENTO DE ROLAGEM E VISUALIZAÇÃO DE DADOS
    ========================================================================== */
