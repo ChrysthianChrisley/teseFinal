@@ -185,20 +185,53 @@
     <!-- 2. GRID PRINCIPAL: MAPA DO PÉ + CARGA NAS 3 REGIÕES -->
     <div class="grid-plantar">
 
-      <!-- MAPA VISUAL DO PÉ (COM A IMAGEM OFICIAL) -->
-      <section class="card card-foot-map">
+      <!-- MAPA VISUAL DO PÉ COM MAPA TÉRMICO E SELETOR TEMPORAL -->
+      <section class="card card-foot-map" id="card-foot-map">
         <div class="card-header-clean">
           <div>
-            <h3 class="card-title">Distribuição Plantar</h3>
-            <p class="card-subtitle">Pé Direito · Zonas de maior vulnerabilidade neuropática</p>
+            <h3 class="card-title">Mapa Térmico Plantar</h3>
+            <p class="card-subtitle">Gradiente 2D contínuo · Zonas de sobrecarga (M1, M5, Calcâneo)</p>
           </div>
           <span class="badge-foot-type">Vista Plantar</span>
         </div>
 
-        <div class="foot-visual-wrapper">
-          <div class="foot-visual-container">
-            <!-- Imagem original do pé com contorno limpo -->
-            <img src="clean_foot.png" alt="Contorno anatômico do pé direito" class="foot-image" id="foot-img">
+        <!-- BARRA DE SELEÇÃO TEMPORAL [ TEMPO REAL | 1h | 3h | 6h | 8h | 12h ] -->
+        <div class="heatmap-toolbar">
+          <div class="heatmap-time-pills" role="tablist" aria-label="Janela de análise do mapa térmico">
+            <button class="pill-btn active" data-window="realtime" id="btn-win-realtime" title="Monitoramento instantâneo em tempo real">Tempo Real</button>
+            <button class="pill-btn" data-window="1h" id="btn-win-1h" title="Dose de sobrecarga acumulada na última 1 hora">1h</button>
+            <button class="pill-btn" data-window="3h" id="btn-win-3h" title="Dose de sobrecarga acumulada nas últimas 3 horas">3h</button>
+            <button class="pill-btn" data-window="6h" id="btn-win-6h" title="Dose de sobrecarga acumulada nas últimas 6 horas">6h</button>
+            <button class="pill-btn" data-window="8h" id="btn-win-8h" title="Dose de sobrecarga acumulada em 8 horas (Turno)">8h</button>
+            <button class="pill-btn" data-window="12h" id="btn-win-12h" title="Dose de sobrecarga acumulada em 12 horas">12h</button>
+          </div>
+        </div>
+
+        <!-- INDICADOR DA JANELA TEMPORAL ATIVA -->
+        <div class="heatmap-window-status" id="heatmap-window-status">
+          <div class="window-status-left">
+            <span class="window-dot-indicator live" id="window-status-dot"></span>
+            <span class="window-status-label" id="window-status-label">Modo Ativo: Tempo Real (10.0 Hz)</span>
+          </div>
+          <div class="window-status-right" id="window-status-meta">
+            Picos dinâmicos instantâneos
+          </div>
+        </div>
+
+        <!-- PALCO ESCURO DE ALTO CONTRASTE (DARK STAGE) -->
+        <div class="foot-dark-stage">
+          <div class="foot-visual-container" id="foot-visual-container">
+            <!-- Imagem anatômica com fundo transparente -->
+            <img src="clean_foot_transparent.png" alt="Contorno anatômico do pé direito" class="foot-image-trans" id="foot-img">
+
+            <!-- Camada de Canvas Térmico Contínuo 2D -->
+            <canvas id="foot-heat-canvas" class="foot-heat-canvas" width="400" height="600" aria-label="Mapa de calor térmico"></canvas>
+
+            <!-- Marcador do Centro de Pressão (CoP) -->
+            <div class="cop-marker" id="cop-marker" style="display: none;">
+              <span class="cop-ring"></span>
+              <span class="cop-dot"></span>
+            </div>
 
             <!-- ZONA 1: 1º METATARSO (M1 - Antepé Medial) -->
             <div class="heat-zone ok" id="zone-m1" style="left: 34%; top: 34%;" data-zone="m1">
@@ -227,13 +260,23 @@
               <div class="zone-tooltip">Calcâneo<br><strong id="tip-calc">0 ADC</strong></div>
             </div>
           </div>
+
+          <!-- ESCALA TÉRMICA MÉDICA COM GRADIENTE COLORIDO -->
+          <div class="thermal-gradient-bar-wrapper">
+            <div class="thermal-gradient-labels">
+              <span>0 ADC (Repouso)</span>
+              <span>Moderado (~300)</span>
+              <span>650+ ADC (Sobrecarga)</span>
+            </div>
+            <div class="thermal-gradient-track"></div>
+          </div>
         </div>
 
         <!-- LEGENDA CLÍNICA RÁPIDA -->
         <div class="clinical-legend">
-          <div class="leg-item"><span class="leg-dot dot-ok"></span> Seguro</div>
-          <div class="leg-item"><span class="leg-dot dot-warn"></span> Atenção</div>
-          <div class="leg-item"><span class="leg-dot dot-danger"></span> Sobrecarga</div>
+          <div class="leg-item"><span class="leg-dot dot-ok"></span> Seguro (Ciano/Verde)</div>
+          <div class="leg-item"><span class="leg-dot dot-warn"></span> Atenção (Amarelo)</div>
+          <div class="leg-item"><span class="leg-dot dot-danger"></span> Sobrecarga (Laranja/Vermelho)</div>
         </div>
       </section>
 
