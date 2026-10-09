@@ -9,7 +9,12 @@ const targetDirs = [
   path.join(root, 'www'),
   path.join(root, 'android/app/src/main/assets/public'),
   path.join(root, 'Apk_GPT/web'),
-  path.join(root, 'Apk_GPT/android/app/src/main/assets/public')
+  path.join(root, 'Apk_GPT/android/app/src/main/assets/public'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/www'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/android/app/src/main/assets/public'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/Apk_GPT/web'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/Apk_GPT/android/app/src/main/assets/public')
 ];
 
 const webFiles = [
@@ -65,7 +70,9 @@ targetDirs.forEach(dest => {
 // Atualiza capacitor.config.json e capacitor.plugins.json nos assets nativos se existirem
 const nativeAssetDirs = [
   path.join(root, 'android/app/src/main/assets'),
-  path.join(root, 'Apk_GPT/android/app/src/main/assets')
+  path.join(root, 'Apk_GPT/android/app/src/main/assets'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/android/app/src/main/assets'),
+  path.resolve('C:/Users/cytch/Documents/Mestrado/07 - Aplicacao_Web_e_APK/Apk_GPT/android/app/src/main/assets')
 ];
 
 nativeAssetDirs.forEach(assetDir => {

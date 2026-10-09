@@ -94,7 +94,7 @@ const char *UUID_SERVICO = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
 const char *UUID_DADOS   = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
 // ── GERENCIAMENTO DE ENERGIA E AUTO-DESLIGAMENTO (DEEP SLEEP) ────────────────
-const uint32_t TEMPO_LIMITE_INATIVO_MS = 900000; // 15 minutos sem conexão BLE (evita desligar durante pausas no teste)
+const uint32_t TEMPO_LIMITE_INATIVO_MS = 180000; // 3 minutos sem conexão BLE (evita desligar durante pausas no teste)
 uint32_t inicioSemConexao = 0;
 bool dispositivoConectado = false;
 uint32_t tempoInicioConexao = 0;

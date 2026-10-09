@@ -26,8 +26,12 @@ $apkDestination = Join-Path $PSScriptRoot 'MonitorPlantar-GPT.apk'
 $apkRepoDestination = Join-Path $PSScriptRoot '..\apk\MonitorPlantar-v2.1.apk'
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'android\app\build\outputs\apk\debug\app-debug.apk') -Destination $apkDestination -Force
 Copy-Item -LiteralPath $apkDestination -Destination $apkRepoDestination -Force
+$mestradoApkDir = 'C:\Users\cytch\Documents\Mestrado\07 - Aplicacao_Web_e_APK\apk'
+if (Test-Path -LiteralPath $mestradoApkDir) {
+    Copy-Item -LiteralPath $apkDestination -Destination (Join-Path $mestradoApkDir 'MonitorPlantar-v2.1.apk') -Force
+}
 $apkHash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($apkDestination))).Replace("-","").ToLowerInvariant()
 [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'MonitorPlantar-GPT.sha256'), "$apkHash  MonitorPlantar-GPT.apk`n", $apkUtf8)
-Write-Output "APK gerado e sincronizado no repositório: $apkRepoDestination"
+Write-Output "APK gerado e sincronizado no repositório: $apkRepoDestination e em $mestradoApkDir"
 
 
