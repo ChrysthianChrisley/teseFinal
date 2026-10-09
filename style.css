@@ -1981,3 +1981,75 @@ input:checked + .slider::before {
   }
 }
 
+/* ── HISTÓRICO DE SESSÕES SALVAS NO APARELHO ───────────────────────────── */
+.saved-sessions-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.saved-sessions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.saved-sessions-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.saved-sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-item-date {
+  font-size: 0.82rem;
+  color: var(--text-main);
+}
+
+.session-item-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.session-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-item-empty {
+  font-size: 0.8rem;
+  color: var(--text-subtle);
+  font-style: italic;
+  padding: 8px;
+  text-align: center;
+}
+

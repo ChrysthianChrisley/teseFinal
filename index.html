@@ -92,8 +92,8 @@
             </svg>
           </div>
           <div>
-            <h3 class="battery-title">Ensaio de Autonomia da Bateria</h3>
-            <p class="battery-subtitle">Gravação contínua no celular até a descarga completa do ESP32</p>
+            <h3 class="battery-title">Gravação Contínua & Autonomia da Bateria</h3>
+            <p class="battery-subtitle">Gravação automática a cada conexão BLE · Histórico persistente no celular</p>
           </div>
         </div>
         <div class="battery-header-badges">
@@ -105,9 +105,9 @@
       <!-- MÉTRICAS DO ENSAIO EM TEMPO REAL -->
       <div class="battery-metrics-grid">
         <div class="battery-metric-item">
-          <span class="battery-metric-label">Tempo de Autonomia</span>
+          <span class="battery-metric-label">Tempo de Gravação</span>
           <div class="battery-metric-val timer-val" id="battery-timer">00:00:00</div>
-          <span class="battery-metric-sub" id="battery-timer-sub">Duração do ensaio</span>
+          <span class="battery-metric-sub" id="battery-timer-sub">Sessão atual</span>
         </div>
 
         <div class="battery-metric-item">
@@ -119,7 +119,7 @@
         <div class="battery-metric-item">
           <span class="battery-metric-label">Armazenamento no Celular</span>
           <div class="battery-metric-val" id="battery-storage-size">0.0 KB</div>
-          <span class="battery-metric-sub" id="battery-storage-status">Memória local segura</span>
+          <span class="battery-metric-sub" id="battery-storage-status">IndexedDB Seguro</span>
         </div>
 
         <div class="battery-metric-item">
@@ -133,8 +133,8 @@
       <div class="battery-alert-banner" id="battery-alert-banner" style="display: none;">
         <div class="battery-alert-icon" id="battery-alert-icon">🔋</div>
         <div class="battery-alert-content">
-          <strong id="battery-alert-title">Ensaio Concluído com Sucesso!</strong>
-          <p id="battery-alert-desc">O ESP32 desconectou por corte de tensão da bateria. Todos os dados foram gravados na memória do celular. Baixe o CSV ou envie por e-mail abaixo.</p>
+          <strong id="battery-alert-title">Sessão Gravada com Sucesso!</strong>
+          <p id="battery-alert-desc">Os dados foram gravados na memória local deste aparelho. Baixe o CSV ou envie por e-mail abaixo.</p>
         </div>
       </div>
 
@@ -143,15 +143,15 @@
         <div class="battery-main-buttons">
           <button id="btn-battery-toggle" class="btn btn-primary btn-record">
             <span class="rec-dot" id="battery-rec-dot"></span>
-            <span id="btn-battery-toggle-text">Iniciar Teste de Bateria</span>
+            <span id="btn-battery-toggle-text">Iniciar Gravação Manual</span>
           </button>
-          <button id="btn-battery-clear" class="btn btn-secondary" title="Limpar dados e reiniciar ensaio">
+          <button id="btn-battery-clear" class="btn btn-secondary" title="Limpar dados da sessão atual">
             Limpar Sessão
           </button>
         </div>
 
         <div class="battery-export-buttons">
-          <button id="btn-battery-download" class="btn btn-secondary" disabled title="Baixar arquivo CSV no celular">
+          <button id="btn-battery-download" class="btn btn-secondary" disabled title="Baixar arquivo CSV desta sessão no celular">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
               <polyline points="7 10 12 15 17 10"/>
@@ -178,6 +178,17 @@
             </svg>
             <span>Enviar por E-mail</span>
           </button>
+        </div>
+      </div>
+
+      <!-- HISTÓRICO DE SESSÕES ANTERIORES GRAVADAS -->
+      <div class="saved-sessions-section" id="saved-sessions-section">
+        <div class="saved-sessions-header">
+          <span class="saved-sessions-title">📁 Sessões Salvas no Aparelho (<span id="sessions-count-label">0</span>)</span>
+          <button id="btn-toggle-sessions-list" class="btn-tiny" type="button">Ver Histórico</button>
+        </div>
+        <div class="saved-sessions-list" id="saved-sessions-list" style="display: none;">
+          <!-- Preenchido via JavaScript -->
         </div>
       </div>
     </section>

@@ -621,13 +621,16 @@ function setConnectionState(type, isConnected) {
 
   if (isConnected) {
     pill.classList.add('connected');
-    label.textContent = 'BLE Conectado';
+    label.textContent = type === 'serial' ? 'USB Conectado' : 'BLE Conectado';
     btnBle.classList.add('active-connected');
     btnBleText.textContent = 'Desconectar BLE';
 
     // Assim que a conexão for estabelecida, oculta a mensagem de espera inicial
     const card = document.getElementById('card-hero-status');
     if (card) card.style.display = 'none';
+
+    // Inicia automaticamente a gravação contínua de telemetria no celular
+    startAutoRecordingSession(type);
   } else {
     pill.classList.remove('connected');
     label.textContent = 'Desconectado';
@@ -639,17 +642,17 @@ function setConnectionState(type, isConnected) {
     const card = document.getElementById('card-hero-status');
     if (card) card.style.display = '';
     renderInitialState();
+
+    // Finaliza e arquiva automaticamente a sessão no celular
+    if (batteryTrial.isRecording) {
+      stopAutoRecordingSession();
+    }
   }
 }
 
 function onDeviceDisconnected() {
   setConnectionState('none', false);
   recordAlertEvent('warn', 'Dispositivo BLE desconectado.');
-
-  // Se o ensaio de autonomia da bateria estava ativo, o desligamento do ESP32 indica esgotamento da bateria!
-  if (batteryTrial.isRecording) {
-    finishBatteryTrialDueToDischarge();
-  }
 }
 
 async function disconnectAll() {
@@ -751,14 +754,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 });
 
 // ==========================================================================
-// ENSAIO DE AUTONOMIA DA BATERIA & GRAVAÇÃO LOCAL NO CELULAR (MESTRADO PPGTS)
-// Armazenamento resiliente na memória local (IndexedDB + Cache localStorage)
+// GRAVAÇÃO CONTÍNUA AUTOMÁTICA & ARQUIVAMENTO RESILIENTE NO CELULAR
+// Armazenamento contínuo em IndexedDB + Cache local + Histórico 12h
 // Exportação direta em CSV, envio por e-mail e compartilhamento nativo móvel
 // ==========================================================================
+
+let rollingHistorySamples = [];
+const MAX_ROLLING_HISTORY_MS = 24 * 3600 * 1000; // Mantém até 24 horas no histórico circular
 
 const batteryTrial = {
   isRecording: false,
   isFinished: false,
+  sessionId: null,
   startTime: null,
   endTime: null,
   timerInterval: null,
@@ -771,7 +778,8 @@ const batteryTrial = {
   peakM5: 0,
   peakCalc: 0,
   storageKey: 'palmilha_battery_trial_samples_v1',
-  metaKey: 'palmilha_battery_trial_meta_v1'
+  metaKey: 'palmilha_battery_trial_meta_v1',
+  sessionsListKey: 'palmilha_saved_sessions_list_v1'
 };
 
 // ── BANCO DE DADOS INDEXEDDB LOCAL DO CELULAR ─────────────────────────────
@@ -782,7 +790,7 @@ function openBatteryDB() {
       resolve(null);
       return;
     }
-    const request = indexedDB.open('InsoleBatteryDB', 1);
+    const request = indexedDB.open('InsoleBatteryDB', 2);
     request.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('sessions')) {
@@ -802,6 +810,7 @@ function openBatteryDB() {
 
 function persistBatteryData() {
   const meta = {
+    sessionId: batteryTrial.sessionId,
     isRecording: batteryTrial.isRecording,
     isFinished: batteryTrial.isFinished,
     startTime: batteryTrial.startTime,
@@ -827,16 +836,91 @@ function persistBatteryData() {
       const tx = batteryTrial.db.transaction('sessions', 'readwrite');
       const store = tx.objectStore('sessions');
       store.put(batteryTrial.samples, 'current_battery_trial');
+      if (batteryTrial.sessionId) {
+        store.put({
+          id: batteryTrial.sessionId,
+          sessionId: batteryTrial.sessionId,
+          startTime: batteryTrial.startTime,
+          endTime: batteryTrial.endTime,
+          durationMs: (batteryTrial.endTime || Date.now()) - (batteryTrial.startTime || Date.now()),
+          formattedDuration: formatTimer((batteryTrial.endTime || Date.now()) - (batteryTrial.startTime || Date.now())),
+          sampleCount: batteryTrial.samples.length,
+          peakM1: batteryTrial.peakM1,
+          peakM5: batteryTrial.peakM5,
+          peakCalc: batteryTrial.peakCalc,
+          dateStr: new Date(batteryTrial.startTime || Date.now()).toLocaleString('pt-BR'),
+          samples: batteryTrial.samples
+        }, batteryTrial.sessionId);
+      }
     } catch (e) {
       console.warn('Erro ao gravar no IndexedDB:', e);
     }
   } else {
-    // Fallback: se não tiver IndexedDB, tenta salvar até 10.000 amostras no localStorage
     try {
       if (batteryTrial.samples.length <= 10000) {
         localStorage.setItem(batteryTrial.storageKey, JSON.stringify(batteryTrial.samples));
       }
     } catch (e) {}
+  }
+}
+
+function archiveCurrentSession() {
+  if (!batteryTrial.samples || batteryTrial.samples.length === 0) return;
+
+  const start = batteryTrial.startTime || Date.now();
+  const end = batteryTrial.endTime || Date.now();
+  const durationMs = Math.max(0, end - start);
+  const sessionId = batteryTrial.sessionId || ('sessao_' + new Date(start).toISOString().slice(0, 19).replace(/[-:T]/g, '_'));
+
+  const sessionRecord = {
+    id: sessionId,
+    sessionId: sessionId,
+    startTime: start,
+    endTime: end,
+    durationMs: durationMs,
+    formattedDuration: formatTimer(durationMs),
+    sampleCount: batteryTrial.samples.length,
+    peakM1: batteryTrial.peakM1,
+    peakM5: batteryTrial.peakM5,
+    peakCalc: batteryTrial.peakCalc,
+    dateStr: new Date(start).toLocaleString('pt-BR'),
+    samples: batteryTrial.samples
+  };
+
+  // Salva no IndexedDB
+  if (batteryTrial.db) {
+    try {
+      const tx = batteryTrial.db.transaction('sessions', 'readwrite');
+      const store = tx.objectStore('sessions');
+      store.put(sessionRecord, sessionId);
+    } catch (e) {
+      console.warn('Erro ao arquivar sessão no IndexedDB:', e);
+    }
+  }
+
+  // Atualiza metadados no localStorage
+  try {
+    const listStr = localStorage.getItem(batteryTrial.sessionsListKey);
+    let list = listStr ? JSON.parse(listStr) : [];
+    list = list.filter(s => s.id !== sessionId);
+    list.unshift({
+      id: sessionId,
+      sessionId: sessionId,
+      startTime: start,
+      endTime: end,
+      durationMs: durationMs,
+      formattedDuration: sessionRecord.formattedDuration,
+      sampleCount: sessionRecord.sampleCount,
+      peakM1: sessionRecord.peakM1,
+      peakM5: sessionRecord.peakM5,
+      peakCalc: sessionRecord.peakCalc,
+      dateStr: sessionRecord.dateStr
+    });
+    if (list.length > 30) list = list.slice(0, 30);
+    localStorage.setItem(batteryTrial.sessionsListKey, JSON.stringify(list));
+    renderSavedSessionsUI();
+  } catch (e) {
+    console.warn('Erro ao salvar metadados da sessão:', e);
   }
 }
 
@@ -847,6 +931,7 @@ async function restorePreviousBatterySession() {
     const meta = JSON.parse(metaStr);
     if (!meta || !meta.sampleCount) return;
 
+    batteryTrial.sessionId = meta.sessionId || null;
     batteryTrial.startTime = meta.startTime;
     batteryTrial.endTime = meta.endTime;
     batteryTrial.isFinished = meta.isFinished ?? true;
@@ -876,6 +961,63 @@ async function restorePreviousBatterySession() {
     }
   } catch (err) {
     console.warn('Erro ao restaurar sessão anterior:', err);
+  }
+}
+
+async function loadRecentHistoryFromDB() {
+  if (!batteryTrial.db) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = batteryTrial.db.transaction('sessions', 'readonly');
+      const store = tx.objectStore('sessions');
+      const req = store.openCursor(null, 'prev');
+      const allSamples = [];
+
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (cursor) {
+          const val = cursor.value;
+          if (Array.isArray(val)) {
+            allSamples.push(...val);
+          } else if (val && val.samples && Array.isArray(val.samples)) {
+            allSamples.push(...val.samples);
+          }
+          cursor.continue();
+        } else {
+          allSamples.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+          const cutoff = Date.now() - MAX_ROLLING_HISTORY_MS;
+          rollingHistorySamples = allSamples.filter(s => (s.timestamp || 0) >= cutoff);
+          if (rollingHistorySamples.length === 0 && allSamples.length > 0) {
+            const lastT = allSamples[allSamples.length - 1].timestamp || 0;
+            const fallbackCutoff = lastT - (12 * 3600 * 1000);
+            rollingHistorySamples = allSamples.filter(s => (s.timestamp || 0) >= fallbackCutoff);
+          }
+          console.log(`[Histórico] Restauradas ${rollingHistorySamples.length} amostras para janelas temporais.`);
+          resolve();
+        }
+      };
+      req.onerror = () => resolve();
+    } catch (e) {
+      resolve();
+    }
+  });
+}
+
+function addSampleToRollingHistory(sample) {
+  rollingHistorySamples.push({
+    timestamp: sample.timestamp,
+    t_ms: sample.t_ms,
+    seq: sample.seq,
+    m1: sample.m1,
+    m5: sample.m5,
+    calc: sample.calc,
+    temp: sample.temp,
+    umid: sample.umid,
+    timeStr: sample.timeStr
+  });
+  const cutoff = Date.now() - MAX_ROLLING_HISTORY_MS;
+  while (rollingHistorySamples.length > 0 && (rollingHistorySamples[0].timestamp || 0) < cutoff) {
+    rollingHistorySamples.shift();
   }
 }
 
@@ -917,6 +1059,7 @@ function recordBatterySample(data) {
   const calc = Math.round(data.calcaneo ?? 0);
 
   const sample = {
+    timestamp: now,
     t_ms: elapsedMs,
     seq: data.seq ?? (batteryTrial.samples.length + 1),
     calc: calc,
@@ -924,7 +1067,7 @@ function recordBatterySample(data) {
     m5: m5,
     temp: (data.temp != null && !isNaN(data.temp)) ? Number(data.temp).toFixed(1) : '',
     umid: (data.umid != null && !isNaN(data.umid)) ? Number(data.umid).toFixed(1) : '',
-    timeStr: new Date().toLocaleTimeString('pt-BR')
+    timeStr: new Date(now).toLocaleTimeString('pt-BR')
   };
 
   batteryTrial.samples.push(sample);
@@ -935,7 +1078,10 @@ function recordBatterySample(data) {
   if (m5 > batteryTrial.peakM5) batteryTrial.peakM5 = m5;
   if (calc > batteryTrial.peakCalc) batteryTrial.peakCalc = calc;
 
-  // Persiste a cada 50 amostras (~5 segundos a 10 Hz) no armazenamento do telefone
+  // Adiciona ao buffer contínuo em memória para o mapa térmico de 1h a 12h
+  addSampleToRollingHistory(sample);
+
+  // Persiste a cada 50 amostras (~5 segundos a 10 Hz) no IndexedDB do telefone
   if (batteryTrial.samples.length % 50 === 0) {
     persistBatteryData();
   }
@@ -954,14 +1100,12 @@ function updateBatteryTrialLiveMetrics() {
   const total = batteryTrial.samples.length;
   if (countEl) countEl.textContent = total.toLocaleString('pt-BR');
 
-  // Cálculo da frequência instantânea média em Hz
   if (batteryTrial.startTime) {
     const elapsedSec = Math.max(1, (Date.now() - batteryTrial.startTime) / 1000);
     const hz = (total / elapsedSec).toFixed(1);
     if (rateEl) rateEl.textContent = `${hz} Hz`;
   }
 
-  // Estimativa do tamanho de memória ocupada no celular
   const estimatedKb = ((total * 55) / 1024).toFixed(1);
   if (sizeEl) sizeEl.textContent = `${estimatedKb} KB`;
 
@@ -999,16 +1143,21 @@ function updateBatteryTimerDisplay() {
   timerEl.textContent = formatTimer(elapsed);
 }
 
-// ── INÍCIO, PARADA E FINALIZAÇÃO DO ENSAIO ─────────────────────────────────
-async function startBatteryTrial() {
-  if (!state.isConnected) {
-    const proceed = confirm('A palmilha ainda não está conectada via BLE. Deseja iniciar o cronômetro do ensaio agora mesmo?');
-    if (!proceed) return;
+// ── CONTROLE AUTOMÁTICO DE GRAVAÇÃO (INÍCIO E PARADA POR CONEXÃO) ─────────
+async function startAutoRecordingSession(type = 'ble') {
+  if (batteryTrial.isRecording) return;
+
+  // Se havia sessão anterior finalizada com dados, arquiva no histórico antes de iniciar
+  if (batteryTrial.samples && batteryTrial.samples.length > 0 && batteryTrial.isFinished) {
+    archiveCurrentSession();
   }
 
+  const now = Date.now();
+  const dateTag = new Date(now).toISOString().slice(0, 19).replace(/[-:T]/g, '_');
+  batteryTrial.sessionId = 'sessao_' + dateTag;
   batteryTrial.isRecording = true;
   batteryTrial.isFinished = false;
-  batteryTrial.startTime = Date.now();
+  batteryTrial.startTime = now;
   batteryTrial.endTime = null;
   batteryTrial.samples = [];
   batteryTrial.peakM1 = 0;
@@ -1016,14 +1165,11 @@ async function startBatteryTrial() {
   batteryTrial.peakCalc = 0;
   batteryTrial.lastSeq = null;
 
-  // Limpa alerta anterior
   const banner = document.getElementById('battery-alert-banner');
   if (banner) banner.style.display = 'none';
 
-  // Aciona tela sempre ativa (Wake Lock) no celular
   await requestWakeLock();
 
-  // Inicia tick do cronômetro a cada 1 segundo
   if (batteryTrial.timerInterval) clearInterval(batteryTrial.timerInterval);
   batteryTrial.timerInterval = setInterval(() => {
     updateBatteryTimerDisplay();
@@ -1032,10 +1178,12 @@ async function startBatteryTrial() {
   persistBatteryData();
   updateBatteryTrialUI();
 
-  recordAlertEvent('ok', 'Ensaio de autonomia da bateria iniciado! Gravando dados...');
+  recordAlertEvent('ok', `Gravação contínua iniciada automaticamente (${type.toUpperCase()})! Dados sendo salvos.`);
 }
 
-function stopBatteryTrialManual() {
+function stopAutoRecordingSession() {
+  if (!batteryTrial.isRecording) return;
+
   batteryTrial.isRecording = false;
   batteryTrial.isFinished = true;
   batteryTrial.endTime = Date.now();
@@ -1044,57 +1192,51 @@ function stopBatteryTrialManual() {
     clearInterval(batteryTrial.timerInterval);
     batteryTrial.timerInterval = null;
   }
+
   updateBatteryTimerDisplay();
   releaseWakeLock();
   persistBatteryData();
+  archiveCurrentSession();
   updateBatteryTrialUI();
 
-  recordAlertEvent('warn', 'Ensaio de bateria interrompido manualmente pelo usuário.');
-}
-
-// QUANDO O ESP32 DESLIGA POR FALTA DE BATERIA (EVENTO GATTSERVERDISCONNECTED)
-function finishBatteryTrialDueToDischarge() {
-  batteryTrial.isRecording = false;
-  batteryTrial.isFinished = true;
-  batteryTrial.endTime = Date.now();
-
-  if (batteryTrial.timerInterval) {
-    clearInterval(batteryTrial.timerInterval);
-    batteryTrial.timerInterval = null;
-  }
-  updateBatteryTimerDisplay();
-  releaseWakeLock();
-  persistBatteryData();
-  updateBatteryTrialUI();
-
-  // Vibração de alerta no celular (se suportado pelo hardware móvel)
   if (navigator.vibrate) {
-    try { navigator.vibrate([300, 150, 300, 150, 600]); } catch (e) {}
+    try { navigator.vibrate([200, 100, 200]); } catch (e) {}
   }
 
-  // Exibe banner especial de ensaio concluído por esgotamento de bateria
+  const summary = getBatteryTrialSummary();
   const banner = document.getElementById('battery-alert-banner');
   const alertTitle = document.getElementById('battery-alert-title');
   const alertDesc = document.getElementById('battery-alert-desc');
-  const summary = getBatteryTrialSummary();
-
   if (banner && alertTitle && alertDesc) {
     banner.style.display = 'flex';
-    alertTitle.textContent = `🔋 Bateria Esgotada! Autonomia Total: ${summary.formattedDuration}`;
-    alertDesc.textContent = `O ESP32 desconectou por corte de tensão da bateria. Foram gravadas ${summary.totalSamples.toLocaleString('pt-BR')} amostras com segurança no armazenamento local deste telefone (${summary.avgHz} Hz). Baixe o CSV ou envie por e-mail abaixo.`;
+    alertTitle.textContent = `💾 Sessão Salva com Sucesso! (${summary.formattedDuration})`;
+    alertDesc.textContent = `Foram gravadas ${summary.totalSamples.toLocaleString('pt-BR')} amostras com segurança no armazenamento local deste telefone (${summary.avgHz} Hz). Baixe o CSV ou envie por e-mail abaixo.`;
   }
+}
 
-  recordAlertEvent('danger', `Ensaio de bateria concluído! Autonomia comprovada: ${summary.formattedDuration}.`);
+// ── CONTROLE MANUAL PELO BOTÃO NA INTERFACE ──────────────────────────────
+async function startBatteryTrial() {
+  await startAutoRecordingSession(state.connectionType || 'manual');
+}
+
+function stopBatteryTrialManual() {
+  stopAutoRecordingSession();
+  recordAlertEvent('warn', 'Gravação pausada manualmente pelo usuário.');
+}
+
+function finishBatteryTrialDueToDischarge() {
+  stopAutoRecordingSession();
+  recordAlertEvent('danger', 'Desconexão do dispositivo: dados da sessão preservados com segurança no celular.');
 }
 
 function clearBatterySession() {
   if (batteryTrial.isRecording) {
-    if (!confirm('O teste de bateria está em andamento. Deseja realmente interromper e limpar os dados?')) {
+    if (!confirm('A gravação está em andamento. Deseja realmente interromper e limpar os dados da sessão atual?')) {
       return;
     }
-    stopBatteryTrialManual();
+    stopAutoRecordingSession();
   } else if (batteryTrial.samples.length > 0) {
-    if (!confirm('Deseja realmente apagar os dados deste ensaio? Certifique-se de ter baixado o CSV antes.')) {
+    if (!confirm('Deseja realmente limpar a sessão atual da tela? O histórico de sessões anteriores será mantido.')) {
       return;
     }
   }
@@ -1113,7 +1255,7 @@ function clearBatterySession() {
     localStorage.removeItem(batteryTrial.storageKey);
     if (batteryTrial.db) {
       const tx = batteryTrial.db.transaction('sessions', 'readwrite');
-      tx.objectStore('sessions').clear();
+      tx.objectStore('sessions').delete('current_battery_trial');
     }
   } catch (e) {}
 
@@ -1137,7 +1279,6 @@ function updateBatteryTrialUI() {
 
   const hasSamples = batteryTrial.samples.length > 0;
 
-  // Botões de exportação habilitados se houver amostras salvas
   if (btnDownload) btnDownload.disabled = !hasSamples;
   if (btnShare) btnShare.disabled = !hasSamples;
   if (btnEmail) btnEmail.disabled = !hasSamples;
@@ -1156,13 +1297,13 @@ function updateBatteryTrialUI() {
     }
     if (badgeStatus) {
       badgeStatus.className = 'badge-battery-status status-recording';
-      badgeStatus.textContent = '🔴 Gravando (Bateria em uso)';
+      badgeStatus.textContent = '🔴 Gravando Automaticamente';
     }
     if (btnToggle) {
       btnToggle.classList.add('is-recording');
     }
     if (btnToggleText) {
-      btnToggleText.textContent = 'Parar Gravação';
+      btnToggleText.textContent = 'Pausar Gravação';
     }
   } else if (batteryTrial.isFinished && hasSamples) {
     if (card) {
@@ -1171,13 +1312,13 @@ function updateBatteryTrialUI() {
     }
     if (badgeStatus) {
       badgeStatus.className = 'badge-battery-status status-finished';
-      badgeStatus.textContent = '🔋 Bateria Esgotada / Concluído';
+      badgeStatus.textContent = '💾 Sessão Salva no Aparelho';
     }
     if (btnToggle) {
       btnToggle.classList.remove('is-recording');
     }
     if (btnToggleText) {
-      btnToggleText.textContent = 'Iniciar Novo Teste';
+      btnToggleText.textContent = 'Iniciar Nova Gravação';
     }
   } else {
     if (card) {
@@ -1186,31 +1327,40 @@ function updateBatteryTrialUI() {
     }
     if (badgeStatus) {
       badgeStatus.className = 'badge-battery-status status-idle';
-      badgeStatus.textContent = '⚪ Pronto para Iniciar';
+      badgeStatus.textContent = '⚪ Pronto para Conectar';
     }
     if (btnToggle) {
       btnToggle.classList.remove('is-recording');
     }
     if (btnToggleText) {
-      btnToggleText.textContent = 'Iniciar Teste de Bateria';
+      btnToggleText.textContent = 'Iniciar Gravação Manual';
     }
   }
 }
 
 // ── ESTATÍSTICAS E RESUMO DO ENSAIO ───────────────────────────────────────
-function getBatteryTrialSummary() {
-  const total = batteryTrial.samples.length;
-  const start = batteryTrial.startTime ? new Date(batteryTrial.startTime) : new Date();
-  const end = batteryTrial.endTime ? new Date(batteryTrial.endTime) : new Date();
+function getBatteryTrialSummary(customSamples = null, customStart = null, customEnd = null) {
+  const samplesArr = customSamples || batteryTrial.samples;
+  const total = samplesArr.length;
+  const start = customStart ? new Date(customStart) : (batteryTrial.startTime ? new Date(batteryTrial.startTime) : new Date());
+  const end = customEnd ? new Date(customEnd) : (batteryTrial.endTime ? new Date(batteryTrial.endTime) : new Date());
   const elapsedMs = Math.max(0, end.getTime() - start.getTime());
   const elapsedSec = Math.max(1, Math.round(elapsedMs / 1000));
   const hz = total > 0 ? (total / elapsedSec).toFixed(1) : '0.0';
+
+  let peakM1 = 0, peakM5 = 0, peakCalc = 0;
+  for (let i = 0; i < total; i++) {
+    const s = samplesArr[i];
+    if ((s.m1 ?? 0) > peakM1) peakM1 = s.m1;
+    if ((s.m5 ?? 0) > peakM5) peakM5 = s.m5;
+    if ((s.calc ?? 0) > peakCalc) peakCalc = s.calc;
+  }
 
   const d = start;
   const dateStr = d.toISOString().slice(0, 10).replace(/-/g, '') + '_' + 
                   String(d.getHours()).padStart(2, '0') + 
                   String(d.getMinutes()).padStart(2, '0');
-  const filename = `ensaio_bateria_palmilha_${dateStr}.csv`;
+  const filename = `ensaio_palmilha_${dateStr}.csv`;
 
   return {
     startedAt: start.toLocaleString('pt-BR'),
@@ -1219,38 +1369,40 @@ function getBatteryTrialSummary() {
     formattedDuration: formatTimer(elapsedMs),
     totalSamples: total,
     avgHz: hz,
-    peakM1: batteryTrial.peakM1,
-    peakM5: batteryTrial.peakM5,
-    peakCalc: batteryTrial.peakCalc,
-    statusText: batteryTrial.isFinished ? 'Finalizado (Esgotamento da Bateria)' : 'Em andamento',
+    peakM1: peakM1,
+    peakM5: peakM5,
+    peakCalc: peakCalc,
+    statusText: batteryTrial.isFinished ? 'Finalizado / Salvo no Celular' : 'Em andamento',
     filename: filename
   };
 }
 
 // ── GERAÇÃO DO ARQUIVO CSV PADRÃO CIENTÍFICO ──────────────────────────────
-function generateCsvContent() {
-  const meta = getBatteryTrialSummary();
+function generateCsvContent(customSamples = null, customStart = null, customEnd = null) {
+  const samplesArr = customSamples || batteryTrial.samples;
+  const meta = getBatteryTrialSummary(samplesArr, customStart, customEnd);
   let csv = `# ====================================================================\n`;
-  csv += `# ENSAIO DE AUTONOMIA DA BATERIA - PALMILHA INSTRUMENTADA (UERJ)\n`;
+  csv += `# TELEMETRIA E PRESSÃO PLANTAR - PALMILHA INSTRUMENTADA (UERJ)\n`;
   csv += `# Projeto: Monitor Plantar Preventivo de Úlceras no Pé Diabético\n`;
   csv += `# Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)\n`;
   csv += `# Data e Hora de Início: ${meta.startedAt}\n`;
   csv += `# Data e Hora de Término: ${meta.endedAt}\n`;
-  csv += `# Autonomia Total Comprovada: ${meta.formattedDuration} (${meta.durationSeconds} segundos)\n`;
+  csv += `# Duração Total Registrada: ${meta.formattedDuration} (${meta.durationSeconds} segundos)\n`;
   csv += `# Total de Amostras Gravadas no Celular: ${meta.totalSamples}\n`;
-  csv += `# Frequência Média de Transmissão BLE: ${meta.avgHz} Hz\n`;
+  csv += `# Frequência Média de Transmissão: ${meta.avgHz} Hz\n`;
   csv += `# Carga Máxima (M1 - 1º Metatarso): ${meta.peakM1} ADC\n`;
   csv += `# Carga Máxima (M5 - 5º Metatarso): ${meta.peakM5} ADC\n`;
   csv += `# Carga Máxima (Calcâneo): ${meta.peakCalc} ADC\n`;
   csv += `# ====================================================================\n`;
-  csv += `t_ms,dt_ms,seq,timestamp_local,m1_adc,m5_adc,calcaneo_adc,temp_c,umid_pct\n`;
+  csv += `t_ms,dt_ms,seq,timestamp_epoch,timestamp_local,m1_adc,m5_adc,calcaneo_adc,temp_c,umid_pct\n`;
 
   let prevTime = 0;
-  for (let i = 0; i < batteryTrial.samples.length; i++) {
-    const s = batteryTrial.samples[i];
+  for (let i = 0; i < samplesArr.length; i++) {
+    const s = samplesArr[i];
     const dt = (i === 0) ? 0 : (s.t_ms - prevTime);
     prevTime = s.t_ms;
-    csv += `${s.t_ms},${dt},${s.seq},"${s.timeStr}",${s.m1},${s.m5},${s.calc},${s.temp},${s.umid}\n`;
+    const epoch = s.timestamp || (batteryTrial.startTime ? (batteryTrial.startTime + s.t_ms) : '');
+    csv += `${s.t_ms},${dt},${s.seq},${epoch},"${s.timeStr}",${s.m1},${s.m5},${s.calc},${s.temp},${s.umid}\n`;
   }
   return csv;
 }
@@ -1274,6 +1426,70 @@ function downloadBatteryCsv() {
   setTimeout(() => URL.revokeObjectURL(url), 3000);
 }
 
+async function downloadSessionCsv(sessionId) {
+  if (!batteryTrial.db) {
+    downloadBatteryCsv();
+    return;
+  }
+  const session = await loadSessionFromDB(sessionId);
+  if (!session || !session.samples || session.samples.length === 0) {
+    alert('Dados da sessão não encontrados no banco local.');
+    return;
+  }
+  const csv = generateCsvContent(session.samples, session.startTime, session.endTime);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${sessionId}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+async function loadSessionIntoHeatmap(sessionId) {
+  const session = await loadSessionFromDB(sessionId);
+  if (!session || !session.samples || session.samples.length === 0) {
+    alert('Não foi possível carregar os dados desta sessão.');
+    return;
+  }
+
+  batteryTrial.sessionId = session.id;
+  batteryTrial.samples = session.samples;
+  batteryTrial.startTime = session.startTime;
+  batteryTrial.endTime = session.endTime;
+  batteryTrial.isFinished = true;
+  batteryTrial.isRecording = false;
+  batteryTrial.peakM1 = session.peakM1 || 0;
+  batteryTrial.peakM5 = session.peakM5 || 0;
+  batteryTrial.peakCalc = session.peakCalc || 0;
+
+  updateBatteryTrialUI();
+
+  // Aciona visualização no mapa térmico
+  selectHeatmapWindow('1h');
+  recordAlertEvent('ok', `Sessão ${session.dateStr} carregada no mapa térmico!`);
+}
+
+function loadSessionFromDB(sessionId) {
+  return new Promise((resolve) => {
+    if (!batteryTrial.db) {
+      resolve(null);
+      return;
+    }
+    try {
+      const tx = batteryTrial.db.transaction('sessions', 'readonly');
+      const store = tx.objectStore('sessions');
+      const req = store.get(sessionId);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
 // ── 2. COMPARTILHAR DADOS VIA WEB SHARE (WHATSAPP, DRIVE, ARQUIVO) ────────
 async function shareBatteryData() {
   if (batteryTrial.samples.length === 0) {
@@ -1286,16 +1502,15 @@ async function shareBatteryData() {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const file = new File([blob], summary.filename, { type: 'text/csv' });
 
-  const shareText = `Ensaio de Autonomia da Bateria - Palmilha Inteligente (UERJ)\n` +
-                    `Autonomia: ${summary.formattedDuration}\n` +
+  const shareText = `Palmilha Inteligente (UERJ) - Dados de Telemetria\n` +
+                    `Duração: ${summary.formattedDuration}\n` +
                     `Amostras: ${summary.totalSamples.toLocaleString('pt-BR')} (${summary.avgHz} Hz)\n` +
                     `Picos: M1=${summary.peakM1} | M5=${summary.peakM5} | Calc=${summary.peakCalc} ADC`;
 
-  // Se o navegador móvel suporta compartilhamento direto de arquivos (Android Chrome / iOS Safari)
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try {
       await navigator.share({
-        title: 'Ensaio de Bateria - Palmilha Inteligente',
+        title: 'Dados da Palmilha Inteligente',
         text: shareText,
         files: [file]
       });
@@ -1304,16 +1519,15 @@ async function shareBatteryData() {
       if (err.name !== 'AbortError') {
         console.warn('Erro ao compartilhar via Web Share:', err);
       } else {
-        return; // Usuário fechou gaveta de compartilhamento
+        return;
       }
     }
   }
 
-  // Fallback: compartilha resumo em texto e dispara download do CSV
   if (navigator.share) {
     try {
       await navigator.share({
-        title: 'Ensaio de Bateria - Palmilha Inteligente',
+        title: 'Dados da Palmilha Inteligente',
         text: shareText
       });
       downloadBatteryCsv();
@@ -1325,7 +1539,6 @@ async function shareBatteryData() {
     }
   }
 
-  // Fallback padrão para navegadores desktop
   downloadBatteryCsv();
 }
 
@@ -1337,22 +1550,20 @@ function sendBatteryEmail() {
   }
 
   const summary = getBatteryTrialSummary();
-
-  // Garante que o arquivo CSV completo seja baixado na pasta Downloads do celular
   downloadBatteryCsv();
 
-  const subject = encodeURIComponent(`[Palmilha UERJ] Relatório de Teste de Bateria - Autonomia: ${summary.formattedDuration}`);
-  const bodyText = `RELATÓRIO DE ENSAIO DE AUTONOMIA DA BATERIA
+  const subject = encodeURIComponent(`[Palmilha UERJ] Relatório de Monitoramento Plantar - Duração: ${summary.formattedDuration}`);
+  const bodyText = `RELATÓRIO DE MONITORAMENTO PLANTAR
 Projeto: Palmilha Instrumentada para Monitoramento e Prevenção do Pé Diabético
 Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)
 
 --------------------------------------------------
-RESUMO EXECUTIVO DO ENSAIO
+RESUMO DA SESSÃO
 --------------------------------------------------
 • Status: ${summary.statusText}
 • Início do Teste: ${summary.startedAt}
 • Término / Desligamento: ${summary.endedAt}
-• Autonomia Total da Bateria: ${summary.formattedDuration} (${summary.durationSeconds} segundos)
+• Duração Registrada: ${summary.formattedDuration} (${summary.durationSeconds} segundos)
 • Total de Amostras Coletadas: ${summary.totalSamples.toLocaleString('pt-BR')}
 • Frequência Média de Transmissão: ${summary.avgHz} Hz
 • Carga Máxima (M1 - 1º Metatarso): ${summary.peakM1} ADC
@@ -1362,8 +1573,7 @@ RESUMO EXECUTIVO DO ENSAIO
 --------------------------------------------------
 DADOS BRUTOS EM CSV
 --------------------------------------------------
-O arquivo completo de telemetria ("${summary.filename}") com todas as ${summary.totalSamples.toLocaleString('pt-BR')} amostras foi baixado com sucesso na pasta de Downloads deste celular.
-Para incluir no banco de dados da dissertação ou gerar gráficos de descarga, anexe o arquivo baixado a este e-mail.
+O arquivo completo de telemetria ("${summary.filename}") com todas as ${summary.totalSamples.toLocaleString('pt-BR')} amostras foi salvo e baixado com sucesso na pasta de Downloads deste celular.
 
 Dispositivo: ESP32 BLE (Palmilha_v5.0)
 Gerado automaticamente pelo aplicativo Monitor Plantar Inteligente.`;
@@ -1372,10 +1582,67 @@ Gerado automaticamente pelo aplicativo Monitor Plantar Inteligente.`;
   window.location.href = `mailto:?subject=${subject}&body=${body}`;
 }
 
+// ── RENDERIZAÇÃO DA LISTA DE SESSÕES SALVAS NO CELULAR ───────────────────
+function renderSavedSessionsUI() {
+  const container = document.getElementById('saved-sessions-list');
+  const countLabel = document.getElementById('sessions-count-label');
+  if (!container) return;
+
+  const listStr = localStorage.getItem(batteryTrial.sessionsListKey);
+  const list = listStr ? JSON.parse(listStr) : [];
+
+  if (countLabel) countLabel.textContent = list.length;
+
+  if (list.length === 0) {
+    container.innerHTML = '<div class="session-item-empty">Nenhuma sessão gravada no histórico deste aparelho.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(s => `
+    <div class="session-item" data-session-id="${s.id}">
+      <div class="session-item-info">
+        <strong class="session-item-date">${s.dateStr || 'Sessão'}</strong>
+        <span class="session-item-meta">⏱️ ${s.formattedDuration || '00:00:00'} · 📊 ${s.sampleCount.toLocaleString('pt-BR')} amostras · Picos: M1:${s.peakM1} M5:${s.peakM5} C:${s.peakCalc}</span>
+      </div>
+      <div class="session-item-actions">
+        <button class="btn-tiny btn-load-session" data-id="${s.id}" title="Carregar dados desta sessão no mapa">🗺️ Ver no Mapa</button>
+        <button class="btn-tiny btn-download-session" data-id="${s.id}" title="Baixar arquivo CSV desta sessão">📥 CSV</button>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.btn-load-session').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      await loadSessionIntoHeatmap(id);
+    });
+  });
+
+  container.querySelectorAll('.btn-download-session').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      await downloadSessionCsv(id);
+    });
+  });
+}
+
 // ── INICIALIZAÇÃO DOS BOTÕES E EVENTOS DO TESTE DE BATERIA ────────────────
 async function initBatteryTrial() {
   await openBatteryDB();
   await restorePreviousBatterySession();
+  await loadRecentHistoryFromDB();
+  renderSavedSessionsUI();
+
+  const btnToggleHistory = document.getElementById('btn-toggle-sessions-list');
+  const sessionsList = document.getElementById('saved-sessions-list');
+  btnToggleHistory?.addEventListener('click', () => {
+    if (!sessionsList) return;
+    const isHidden = sessionsList.style.display === 'none';
+    sessionsList.style.display = isHidden ? 'flex' : 'none';
+    btnToggleHistory.textContent = isHidden ? 'Ocultar Histórico' : 'Ver Histórico';
+  });
 
   const btnToggle = document.getElementById('btn-battery-toggle');
   btnToggle?.addEventListener('click', () => {
@@ -1406,6 +1673,7 @@ async function initBatteryTrial() {
     sendBatteryEmail();
   });
 }
+
 
 // ==========================================================================
 // MAPA TÉRMICO PLANTAR 2D CONTÍNUO & ANÁLISE TEMPORAL (MESTRADO PPGTS)
@@ -1666,17 +1934,17 @@ function selectHeatmapWindow(windowKey) {
   const targetHours = hoursMap[windowKey] || 1;
   const targetMs = targetHours * 3600 * 1000;
 
-  // Coleta amostras disponíveis (do ensaio de bateria ou histórico contínuo)
+  // Coleta amostras reais disponíveis no celular
   const samples = getHistoricalSamplesForWindow(targetMs);
 
   if (!samples || samples.length === 0) {
-    if (label) label.textContent = `Janela ${windowKey}: Aguardando dados`;
-    if (meta) meta.textContent = 'Inicie o ensaio ou a telemetria BLE para acumular';
+    if (label) label.textContent = `Janela ${windowKey}: Nenhuma sessão gravada no celular`;
+    if (meta) meta.textContent = 'Conecte a palmilha via BLE para iniciar a gravação automática';
     footHeatmap.render(0, 0, 0);
     return;
   }
 
-  // Computa médias, picos e distribuição
+  // Computa médias e picos das amostras reais
   let sumM1 = 0, sumM5 = 0, sumCalc = 0;
   let maxM1 = 0, maxM5 = 0, maxCalc = 0;
 
@@ -1700,7 +1968,7 @@ function selectHeatmapWindow(windowKey) {
   const avgM5 = Math.round(sumM5 / n);
   const avgCalc = Math.round(sumCalc / n);
 
-  // Renderiza mapa de calor com base nas intensidades médias da janela
+  // Renderiza mapa de calor com base nas intensidades médias reais da janela
   footHeatmap.render(avgM1, avgM5, avgCalc);
 
   // Determina área com maior carga acumulada
@@ -1710,11 +1978,14 @@ function selectHeatmapWindow(windowKey) {
   else if (highest === avgM1) highestName = '1º Metatarso (M1)';
   else if (highest === avgM5) highestName = '5º Metatarso (M5)';
 
+  const durationSec = Math.max(1, Math.round(n / 10));
+  const durationStr = formatTimer(durationSec * 1000);
+
   if (label) {
-    label.textContent = `Dose Acumulada: ${windowKey} (${n.toLocaleString('pt-BR')} amostras computadas)`;
+    label.textContent = `Dose Acumulada: ${windowKey} (${n.toLocaleString('pt-BR')} amostras · ${durationStr} gravados)`;
   }
   if (meta) {
-    meta.textContent = `Maior sobrecarga: ${highestName} (Média ${highest} ADC)`;
+    meta.textContent = `Maior sobrecarga: ${highestName} (Média ${highest} ADC | Pico ${Math.max(maxM1, maxM5, maxCalc)} ADC)`;
   }
 
   // Atualiza as barras de leitura e tooltips
@@ -1722,37 +1993,34 @@ function selectHeatmapWindow(windowKey) {
 }
 
 function getHistoricalSamplesForWindow(targetMs) {
-  // 1. Se houver dados do ensaio de bateria registrado (como as 36.035 amostras)
-  if (batteryTrial.samples && batteryTrial.samples.length > 0) {
-    const arr = batteryTrial.samples;
-    const totalMs = arr[arr.length - 1].t_ms ?? (arr.length * 100);
-    const cutoff = Math.max(0, totalMs - targetMs);
-    return arr.filter(s => (s.t_ms ?? 0) >= cutoff);
+  // 1. Reúne todo o acervo de amostras reais registradas no celular
+  let pool = [];
+  if (rollingHistorySamples && rollingHistorySamples.length > 0) {
+    pool = rollingHistorySamples;
+  } else if (batteryTrial.samples && batteryTrial.samples.length > 0) {
+    pool = batteryTrial.samples;
   }
 
-  // 2. Se houver buffer contínuo de telemetria em memória
-  if (telemetryHistory.length > 0) {
-    const now = Date.now();
-    const cutoff = now - targetMs;
-    return telemetryHistory.filter(s => s.t >= cutoff);
-  }
+  if (pool.length > 0) {
+    const lastSample = pool[pool.length - 1];
+    const lastTime = lastSample.timestamp || (batteryTrial.startTime ? (batteryTrial.startTime + (lastSample.t_ms || 0)) : Date.now());
+    const cutoffTime = lastTime - targetMs;
 
-  // 3. Fallback inteligente para demonstração / simulação na banca
-  return generateSimulatedWindowSamples(targetMs);
-}
-
-function generateSimulatedWindowSamples(targetMs) {
-  const samples = [];
-  const count = Math.min(600, Math.round(targetMs / (60 * 1000))); // 1 amostra agregada por minuto
-  for (let i = 0; i < count; i++) {
-    const phase = i % 3;
-    samples.push({
-      m1: phase === 0 ? 245 + Math.round(Math.random() * 45) : 15,
-      m5: phase === 2 ? 330 + Math.round(Math.random() * 35) : 10,
-      calc: phase === 1 ? 340 + Math.round(Math.random() * 40) : 20
+    const filtered = pool.filter(s => {
+      const sTime = s.timestamp || (batteryTrial.startTime ? (batteryTrial.startTime + (s.t_ms || 0)) : 0);
+      return sTime >= cutoffTime;
     });
+
+    if (filtered.length > 0) {
+      return filtered;
+    }
+    // Se todo o histórico gravado for menor que a janela solicitada (ex: gravou 1h e clicou 12h),
+    // retorna todas as amostras reais registradas!
+    return pool;
   }
-  return samples;
+
+  // Sem registros
+  return [];
 }
 
 function displayWindowAveragesInReadings({ avgM1, avgM5, avgCalc, maxM1, maxM5, maxCalc }) {
