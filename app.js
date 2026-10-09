@@ -481,11 +481,71 @@ btnBle?.addEventListener('click', async () => {
   }
 });
 
+async function sendBleCommand(cmdStr) {
+  if (!state.bleChar) return;
+  try {
+    const encoder = new TextEncoder();
+    await state.bleChar.writeValue(encoder.encode(cmdStr));
+    console.log('[BLE TX] Comando enviado para palmilha:', cmdStr);
+  } catch (err) {
+    console.warn('Erro ao enviar comando BLE:', err);
+  }
+}
+
+let syncBatchBuffer = [];
+
 function onBleDataReceived(event) {
   try {
     const rawString = new TextDecoder('utf-8').decode(event.target.value);
     const parsed = JSON.parse(rawString);
 
+    // 1. PROTOCOLO SYNC & PURGE (SINCRONIZAÇÃO AUTOMÁTICA DA MEMÓRIA FLASH DA PALMILHA)
+    if (parsed.tipo === 'offline_status') {
+      const total = parsed.total || 0;
+      if (total > 0) {
+        console.log(`[Sync & Purge] Palmilha possui ${total} amostras offline (${parsed.kb} KB). Solicitando download...`);
+        recordAlertEvent('warn', `📥 Detectadas ${total} amostras gravadas offline na palmilha. Baixando para o celular...`);
+        syncBatchBuffer = [];
+        sendBleCommand('SYNC_START');
+      }
+      return;
+    }
+
+    if (parsed.tipo === 'sync_batch') {
+      const items = parsed.d || [];
+      for (const item of items) {
+        // Formato compacto recebido: [t_ms, m1, m5, calc]
+        const sample = {
+          calcaneo: item[3],
+          meta1: item[1],
+          meta5: item[2],
+          t_ms: item[0],
+          seq: batteryTrial.samples.length + 1
+        };
+        syncBatchBuffer.push(sample);
+        recordBatterySample(sample);
+      }
+      return;
+    }
+
+    if (parsed.tipo === 'sync_fim') {
+      const total = parsed.total || syncBatchBuffer.length;
+      console.log(`[Sync & Purge] Sincronização concluída (${total} amostras). Arquivando e liberando Flash da palmilha...`);
+      persistBatteryData();
+      archiveCurrentSession();
+      // Envia confirmação para o ESP32 purgar e liberar a memória Flash
+      sendBleCommand('PURGE');
+      recordAlertEvent('ok', `✅ ${total} amostras offline mescladas com sucesso! Memória da palmilha liberada (100% livre).`);
+      syncBatchBuffer = [];
+      return;
+    }
+
+    if (parsed.tipo === 'purge_ok') {
+      console.log('[Sync & Purge] Confirmação da palmilha: memória Flash purgada com sucesso.');
+      return;
+    }
+
+    // 2. PACOTE NORMAL DE TELEMETRIA EM TEMPO REAL
     const data = {
       calcaneo: parsed.calcaneo != null ? parseInt(parsed.calcaneo, 10) : 0,
       meta1:    parsed.meta1 != null ? parseInt(parsed.meta1, 10) : 0,

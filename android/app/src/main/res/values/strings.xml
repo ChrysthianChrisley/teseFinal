@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Monitor Plantar UERJ</string>
+    <string name="title_activity_main">Monitor Plantar UERJ</string>
+    <string name="package_name">br.uerj.ppgts.monitorplantar</string>
+    <string name="custom_url_scheme">br.uerj.ppgts.monitorplantar</string>
+</resources>
