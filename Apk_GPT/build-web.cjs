@@ -1,0 +1,15 @@
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const root = __dirname;
+const assets = path.join(root, 'android/app/src/main/assets');
+fs.mkdirSync(assets, { recursive: true });
+fs.cpSync(path.join(root, 'web'), path.join(assets, 'public'), { recursive: true });
+fs.copyFileSync(path.join(root, 'capacitor.config.json'), path.join(assets, 'capacitor.config.json'));
+fs.writeFileSync(path.join(assets, 'capacitor.plugins.json'), '[]\n');
+const local = path.join(root, 'node_modules/@capacitor/android/capacitor');
+const shared = path.join(root, '../node_modules/@capacitor/android/capacitor');
+if (!fs.existsSync(local) && !fs.existsSync(shared)) throw new Error('Execute npm ci em Apk_GPT ou no site antes de compilar.');
+const relative = fs.existsSync(local) ? '../node_modules/@capacitor/android/capacitor' : '../../node_modules/@capacitor/android/capacitor';
+fs.writeFileSync(path.join(root, 'android/capacitor.settings.gradle'), `include ':capacitor-android'\nproject(':capacitor-android').projectDir = new File('${relative}')\n`);
+console.log('Interface e configuração incorporadas ao projeto Android.');

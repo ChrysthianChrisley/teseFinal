@@ -4,3 +4,9 @@ android/app/build/
 android/build/
 www/
 *.log
+Apk_GPT/tools/
+Apk_GPT/android/.gradle/
+Apk_GPT/android/build/
+Apk_GPT/android/app/build/
+Apk_GPT/android/local.properties
+

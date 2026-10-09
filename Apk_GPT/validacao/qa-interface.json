@@ -1,0 +1,116 @@
+{
+  "result": "PASS",
+  "browser": "Microsoft Edge headless",
+  "viewport": {
+    "width": 430,
+    "height": 932
+  },
+  "initial": {
+    "connected": "BLE Conectado",
+    "samples": 2,
+    "temp": "31.2",
+    "humidity": "63",
+    "toggleDisabled": true,
+    "saveDisabled": false,
+    "width": 430,
+    "scrollWidth": 430,
+    "fontsStatus": "loaded",
+    "loadedFonts": [
+      "JetBrains Mono",
+      "JetBrains Mono",
+      "Outfit",
+      "Outfit",
+      "Outfit",
+      "Plus Jakarta Sans",
+      "Plus Jakarta Sans",
+      "Plus Jakarta Sans",
+      "Plus Jakarta Sans"
+    ],
+    "source": true
+  },
+  "exceptions": [],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "loadedFontResponses": [
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-5.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-9.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-10.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-4.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-6.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-7.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-2.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-8.ttf",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:64169/fonts/font-1.ttf",
+      "status": 200
+    }
+  ],
+  "networkRequests": [
+    "http://127.0.0.1:64169/index.html",
+    "http://127.0.0.1:64169/fonts/fonts.css",
+    "http://127.0.0.1:64169/style.css?v=2.1",
+    "http://127.0.0.1:64169/clean_foot_transparent.png",
+    "http://127.0.0.1:64169/android.js",
+    "http://127.0.0.1:64169/app.js?v=2.1",
+    "http://127.0.0.1:64169/fonts/font-5.ttf",
+    "http://127.0.0.1:64169/fonts/font-9.ttf",
+    "http://127.0.0.1:64169/fonts/font-4.ttf",
+    "http://127.0.0.1:64169/fonts/font-10.ttf",
+    "http://127.0.0.1:64169/fonts/font-6.ttf",
+    "http://127.0.0.1:64169/fonts/font-7.ttf",
+    "http://127.0.0.1:64169/fonts/font-2.ttf",
+    "http://127.0.0.1:64169/fonts/font-1.ttf",
+    "http://127.0.0.1:64169/fonts/font-8.ttf",
+    "http://127.0.0.1:64169/clean_foot_transparent.png",
+    "http://127.0.0.1:64169/favicon.ico"
+  ],
+  "exports": [
+    {
+      "sessionId": "qa-session",
+      "share": false
+    },
+    {
+      "sessionId": "qa-session",
+      "share": true
+    }
+  ],
+  "checks": [
+    "Native mock injected before production scripts",
+    "Two telemetry samples rendered",
+    "Microclimate survives subsequent packet without those fields",
+    "No horizontal overflow at mobile width",
+    "Automatic recording button disabled",
+    "Save and share export native complete session",
+    "Interrupted 10+100 offline retry produces 100 unique rows",
+    "Purge acknowledgement resets offline transfer generation",
+    "Resume retrieves new packets without duplicates",
+    "Native session history visible",
+    "Disconnect stops native service",
+    "All page requests local; external network blocked",
+    "Fonts loaded locally; no console errors"
+  ]
+}
