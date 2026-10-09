@@ -2053,3 +2053,27 @@ input:checked + .slider::before {
   text-align: center;
 }
 
+/* DICA DE USO BLE NO CELULAR / SEGUNDO PLANO */
+.mobile-ble-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  margin-top: 10px;
+  font-size: 0.8rem;
+  color: #166534;
+  line-height: 1.4;
+}
+
+.mobile-ble-tip .tip-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.mobile-ble-tip .tip-text strong {
+  color: #14532d;
+}
+

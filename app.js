@@ -651,8 +651,13 @@ function setConnectionState(type, isConnected) {
 }
 
 function onDeviceDisconnected() {
+  const hadSamples = batteryTrial.samples && batteryTrial.samples.length > 0;
   setConnectionState('none', false);
-  recordAlertEvent('warn', 'Dispositivo BLE desconectado.');
+  if (hadSamples) {
+    recordAlertEvent('warn', 'Dispositivo BLE desconectado. Sessão salva no histórico local!');
+  } else {
+    recordAlertEvent('warn', 'Dispositivo BLE desconectado antes de receber amostras.');
+  }
 }
 
 async function disconnectAll() {
@@ -865,7 +870,10 @@ function persistBatteryData() {
 }
 
 function archiveCurrentSession() {
-  if (!batteryTrial.samples || batteryTrial.samples.length === 0) return;
+  if (!batteryTrial.samples || batteryTrial.samples.length === 0) {
+    console.log('[Sessão] Nenhuma amostra recebida nesta conexão para arquivar.');
+    return;
+  }
 
   const start = batteryTrial.startTime || Date.now();
   const end = batteryTrial.endTime || Date.now();
@@ -1046,6 +1054,25 @@ function releaseWakeLock() {
   }
   if (badgeWake) badgeWake.classList.remove('active');
 }
+
+// ── GESTÃO DE SEGUNDO PLANO (VISIBILITY CHANGE - ANDROID / MOBILE) ──────────
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'hidden') {
+    // Usuário trocou de aplicativo (WhatsApp, etc.) ou tela apagou
+    console.log('[Segundo Plano] Aplicação minimizada. Persistindo amostras imediatamente no IndexedDB...');
+    if (batteryTrial.isRecording && batteryTrial.samples.length > 0) {
+      persistBatteryData();
+    }
+  } else if (document.visibilityState === 'visible') {
+    // Retornou para o aplicativo
+    console.log('[Primeiro Plano] Retornou ao aplicativo.');
+    if (state.connectionType === 'ble' && state.bleDevice?.gatt?.connected) {
+      await requestWakeLock();
+    } else if (batteryTrial.isFinished && batteryTrial.samples.length > 0) {
+      recordAlertEvent('warn', 'O Android suspendeu a conexão Bluetooth ao alternar de tela. Os dados foram salvos no aparelho!');
+    }
+  }
+});
 
 // ── REGISTRO DE CADA AMOSTRA RECEBIDA ──────────────────────────────────────
 function recordBatterySample(data) {
