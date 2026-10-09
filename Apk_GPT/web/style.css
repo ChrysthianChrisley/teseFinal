@@ -697,6 +697,14 @@ input:checked + .slider::before {
   z-index: 2;
   pointer-events: none;
   border-radius: 12px;
+  -webkit-mask-image: url('clean_foot_transparent.png');
+  -webkit-mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: url('clean_foot_transparent.png');
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
 }
 
 /* Marcador do Centro de Pressão (CoP) */

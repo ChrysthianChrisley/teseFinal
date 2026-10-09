@@ -1966,7 +1966,9 @@ const footHeatmap = {
   loadFootMask() {
     return new Promise((resolve) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      if (typeof window !== 'undefined' && window.location && window.location.protocol !== 'file:') {
+        img.crossOrigin = 'anonymous';
+      }
       img.onload = () => {
         try {
           const maskCanvas = document.createElement('canvas');
@@ -1981,12 +1983,12 @@ const footHeatmap = {
             this.footMask[i] = (imgData.data[i * 4 + 3] > 30) ? 1 : 0;
           }
         } catch (e) {
-          this.footMask = new Uint8Array(this.width * this.height).fill(1);
+          this.footMask = null;
         }
         resolve();
       };
       img.onerror = () => {
-        this.footMask = new Uint8Array(this.width * this.height).fill(1);
+        this.footMask = null;
         resolve();
       };
       img.src = 'clean_foot_transparent.png';
