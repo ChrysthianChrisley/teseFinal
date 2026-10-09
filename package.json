@@ -4,6 +4,8 @@
   "description": "",
   "main": "app.js",
   "scripts": {
+    "build": "node build.js",
+    "compile-apk": "powershell -ExecutionPolicy Bypass -File ./Apk_GPT/Compilar.ps1",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

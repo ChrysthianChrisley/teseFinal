@@ -2,13 +2,16 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="description" content="Interface visual para monitoramento plantar e microclima para prevenção de úlceras no pé diabético. Projeto de Mestrado Profissional em Telessaúde e Saúde Digital (UERJ).">
   <meta name="theme-color" content="#0f766e">
   <title>Monitor Plantar · Cuidado Preventivo do Pé</title>
 
-  <!-- Fontes incluídas no APK para uso offline -->
+  <!-- Fontes offline para o APK e online para o site -->
   <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css?v=2.1">
 </head>
@@ -91,12 +94,12 @@
           </div>
           <div>
             <h3 class="battery-title">Gravação Contínua & Autonomia da Bateria</h3>
-            <p class="battery-subtitle">Coleta BLE em segundo plano · Histórico preservado no Android</p>
+            <p class="battery-subtitle">Gravação automática a cada conexão BLE · Histórico persistente no celular</p>
           </div>
         </div>
         <div class="battery-header-badges">
           <span class="badge-battery-status status-idle" id="badge-battery-status">⚪ Pronto para Iniciar</span>
-          <span class="badge-wakelock" id="badge-wakelock" title="O serviço Android mantém a coleta com a tela apagada">🔔 Serviço parado</span>
+          <span class="badge-wakelock" id="badge-wakelock" title="Mantém a tela acesa durante o teste para o sistema não suspender o Bluetooth">☀️ Tela Ativa</span>
         </div>
       </div>
 
@@ -117,7 +120,7 @@
         <div class="battery-metric-item">
           <span class="battery-metric-label">Armazenamento no Celular</span>
           <div class="battery-metric-val" id="battery-storage-size">0.0 KB</div>
-          <span class="battery-metric-sub" id="battery-storage-status">SQLite Android · CSV completo preservado</span>
+          <span class="battery-metric-sub" id="battery-storage-status">IndexedDB Seguro</span>
         </div>
 
         <div class="battery-metric-item">
@@ -140,21 +143,24 @@
       <div class="mobile-ble-tip">
         <span class="tip-icon">💡</span>
         <div class="tip-text">
-          <strong>Coleta com a tela apagada:</strong>
-          <span id="native-service-status">Conecte a palmilha para iniciar o serviço Android. Permita Bluetooth e notificações quando solicitado.</span>
-          <p style="margin:6px 0 0;">Mantenha a notificação do Monitor Plantar ativa durante o ensaio. Use “Desconectar BLE” para encerrar. Se o aparelho interromper o serviço por economia de bateria, permita execução em segundo plano nas configurações do Android. O CSV é exportado do histórico completo, incluindo os dados recebidos com o aplicativo minimizado.</p>
+          <strong>Atenção para o teste no sapato:</strong> Mantenha esta tela aberta no navegador (ou instale o aplicativo Android nativo abaixo para gravar continuamente com a tela desligada no bolso):
+          <div style="margin-top: 6px;">
+            <a href="https://github.com/ChrysthianChrisley/teseFinal/raw/main/apk/MonitorPlantar-v2.1.apk" class="btn btn-tiny" style="display:inline-flex; align-items:center; gap:4px; text-decoration:none;" download>
+              📲 Baixar Aplicativo Android (.APK)
+            </a>
+          </div>
         </div>
       </div>
 
       <!-- BOTÕES DE CONTROLE E EXPORTAÇÃO -->
       <div class="battery-actions-row">
         <div class="battery-main-buttons">
-          <button id="btn-battery-toggle" class="btn btn-primary btn-record" disabled title="A gravação começa com a conexão BLE e termina ao desconectar">
+          <button id="btn-battery-toggle" class="btn btn-primary btn-record">
             <span class="rec-dot" id="battery-rec-dot"></span>
-            <span id="btn-battery-toggle-text">Gravação automática pelo Android</span>
+            <span id="btn-battery-toggle-text">Iniciar Gravação Manual</span>
           </button>
-          <button id="btn-battery-clear" class="btn btn-secondary" title="Limpa apenas a visualização; os dados continuam no histórico Android">
-            Limpar Visualização
+          <button id="btn-battery-clear" class="btn btn-secondary" title="Limpar dados da sessão atual">
+            Limpar Sessão
           </button>
         </div>
 
@@ -165,7 +171,7 @@
               <polyline points="7 10 12 15 17 10"/>
               <line x1="12" y1="15" x2="12" y2="3"/>
             </svg>
-            <span>Salvar CSV Completo</span>
+            <span>Baixar CSV</span>
           </button>
 
           <button id="btn-battery-share" class="btn btn-secondary" disabled title="Compartilhar CSV via WhatsApp, Google Drive ou outros apps">
@@ -184,7 +190,7 @@
               <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
               <polyline points="22,6 12,13 2,6"/>
             </svg>
-            <span>Enviar CSV por E-mail</span>
+            <span>Enviar por E-mail</span>
           </button>
         </div>
       </div>
@@ -554,7 +560,9 @@
         <div class="footer-version">
           <span class="version-pill">v2.1</span>
           <span class="version-timestamp">Atualizado em 09/10/2026 às 14:35</span>
-          <span class="version-apk-link" title="Aplicativo Android com coleta BLE nativa">📲 Android · Coleta em segundo plano</span>
+          <a href="https://github.com/ChrysthianChrisley/teseFinal/raw/main/apk/MonitorPlantar-v2.1.apk" class="version-apk-link" download title="Baixar aplicativo Android (.APK)">
+            📥 Baixar App (.APK)
+          </a>
         </div>
       </div>
       <div class="footer-meta" id="footer-meta">
@@ -563,8 +571,9 @@
     </div>
   </footer>
 
-  <!-- SCRIPT PRINCIPAL -->
+  <!-- SCRIPTS PRINCIPAIS (MESMO CÓDIGO NO SITE E NO APK) -->
   <script src="android.js"></script>
   <script src="app.js?v=2.1"></script>
 </body>
 </html>
+

@@ -436,6 +436,7 @@ btnBle?.addEventListener('click', async () => {
     await NativeMonitor.connect();
     return;
   }
+
   if (state.connectionType === 'ble' && state.bleDevice?.gatt?.connected) {
     disconnectAll();
     return;
@@ -487,8 +488,6 @@ btnBle?.addEventListener('click', async () => {
 
 async function sendBleCommand(cmdStr) {
   if (window.NativeMonitor?.enabled) {
-    // The native service handles synchronization and acknowledges only durable data.
-    if (cmdStr === 'SYNC_START' || cmdStr === 'PURGE') return;
     await NativeMonitor.write(cmdStr);
     return;
   }
@@ -895,7 +894,6 @@ function openBatteryDB() {
 }
 
 function persistBatteryData() {
-  // SQLite is the source of truth in the APK. The web view is rebuilt on opening.
   if (window.NativeMonitor?.enabled) return;
   const meta = {
     sessionId: batteryTrial.sessionId,
@@ -1228,7 +1226,7 @@ window.addEventListener('pagehide', () => {
 
 // ── REGISTRO DE CADA AMOSTRA RECEBIDA ──────────────────────────────────────
 function recordBatterySample(data) {
-  if (window.NativeMonitor?.enabled) return; // NativeMonitor replays the durable journal.
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.isRecording) return;
 
   const now = Date.now();

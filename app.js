@@ -432,6 +432,11 @@ document.getElementById('btn-clear-alerts')?.addEventListener('click', () => {
 // ── CONEXÃO BLUETOOTH LOW ENERGY (WEB BLUETOOTH API) ──────────────────────
 const btnBle = document.getElementById('btn-ble');
 btnBle?.addEventListener('click', async () => {
+  if (window.NativeMonitor?.enabled) {
+    await NativeMonitor.connect();
+    return;
+  }
+
   if (state.connectionType === 'ble' && state.bleDevice?.gatt?.connected) {
     disconnectAll();
     return;
@@ -482,6 +487,10 @@ btnBle?.addEventListener('click', async () => {
 });
 
 async function sendBleCommand(cmdStr) {
+  if (window.NativeMonitor?.enabled) {
+    await NativeMonitor.write(cmdStr);
+    return;
+  }
   if (!state.bleChar) return;
   try {
     const encoder = new TextEncoder();
@@ -725,6 +734,7 @@ function onDeviceDisconnected() {
 }
 
 async function disconnectAll() {
+  if (window.NativeMonitor?.enabled) { await NativeMonitor.disconnect(); return; }
   if (state.bleDevice && state.bleDevice.gatt.connected) {
     state.bleDevice.gatt.disconnect();
   }
@@ -821,6 +831,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   await initBatteryTrial();
   await footHeatmap.init();
   initHeatmapToolbar();
+  if (window.NativeMonitor?.enabled) {
+    try { await NativeMonitor.initialize(); }
+    catch (err) { alert(`Falha ao iniciar o serviço Android: ${err.message}`); }
+  }
 });
 
 // ==========================================================================
@@ -854,6 +868,7 @@ const batteryTrial = {
 
 // ── BANCO DE DADOS INDEXEDDB LOCAL DO CELULAR ─────────────────────────────
 function openBatteryDB() {
+  if (window.NativeMonitor?.enabled) return Promise.resolve(null);
   return new Promise((resolve) => {
     if (!window.indexedDB) {
       console.warn('IndexedDB não suportado neste navegador. Usando localStorage.');
@@ -879,6 +894,7 @@ function openBatteryDB() {
 }
 
 function persistBatteryData() {
+  if (window.NativeMonitor?.enabled) return;
   const meta = {
     sessionId: batteryTrial.sessionId,
     isRecording: batteryTrial.isRecording,
@@ -935,6 +951,7 @@ function persistBatteryData() {
 }
 
 function archiveCurrentSession() {
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.samples || batteryTrial.samples.length === 0) {
     console.log('[Sessão] Nenhuma amostra recebida nesta conexão para arquivar.');
     return;
@@ -1010,6 +1027,7 @@ function showRecoveryAlert(sampleCount) {
 }
 
 async function restorePreviousBatterySession() {
+  if (window.NativeMonitor?.enabled) return;
   try {
     const metaStr = localStorage.getItem(batteryTrial.metaKey);
     if (!metaStr) return;
@@ -1061,6 +1079,7 @@ async function restorePreviousBatterySession() {
 }
 
 async function loadRecentHistoryFromDB() {
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.db) return;
   return new Promise((resolve) => {
     try {
@@ -1119,6 +1138,7 @@ function addSampleToRollingHistory(sample) {
 
 // ── GESTÃO DO SCREEN WAKE LOCK (TELA SEMPRE ACESA NO CELULAR) ──────────────
 async function requestWakeLock() {
+  if (window.NativeMonitor?.enabled) return;
   const badgeWake = document.getElementById('badge-wakelock');
   if ('wakeLock' in navigator) {
     try {
@@ -1145,6 +1165,10 @@ function releaseWakeLock() {
 
 // ── GESTÃO DE SEGUNDO PLANO (VISIBILITY CHANGE - ANDROID / MOBILE) ──────────
 document.addEventListener('visibilitychange', async () => {
+  if (window.NativeMonitor?.enabled) {
+    if (document.visibilityState === 'visible') await NativeMonitor.resume();
+    return;
+  }
   if (document.visibilityState === 'hidden') {
     // Usuário trocou de aplicativo (WhatsApp, etc.) ou tela apagou
     console.log('[Segundo Plano] Aplicação minimizada. Persistindo amostras imediatamente no IndexedDB...');
@@ -1164,6 +1188,7 @@ document.addEventListener('visibilitychange', async () => {
 
 // ── SALVAMENTO EMERGENCIAL E PROTEÇÃO CONTRA FECHAMENTO / RECARREGAMENTO ────
 function emergencySaveSession() {
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.samples || batteryTrial.samples.length === 0) return;
 
   const now = Date.now();
@@ -1182,6 +1207,7 @@ function emergencySaveSession() {
 
 // Intercepta tentativa de recarregar ou fechar página (aviso nativo + salvamento prévio)
 window.addEventListener('beforeunload', (e) => {
+  if (window.NativeMonitor?.enabled) return;
   if (batteryTrial.isRecording && batteryTrial.samples.length > 0) {
     emergencySaveSession();
     e.preventDefault();
@@ -1192,6 +1218,7 @@ window.addEventListener('beforeunload', (e) => {
 
 // Garante salvamento no descarregamento da página (Lifecycle API do navegador)
 window.addEventListener('pagehide', () => {
+  if (window.NativeMonitor?.enabled) return;
   if (batteryTrial.isRecording && batteryTrial.samples.length > 0) {
     emergencySaveSession();
   }
@@ -1199,6 +1226,7 @@ window.addEventListener('pagehide', () => {
 
 // ── REGISTRO DE CADA AMOSTRA RECEBIDA ──────────────────────────────────────
 function recordBatterySample(data) {
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.isRecording) return;
 
   const now = Date.now();
@@ -1241,6 +1269,7 @@ function recordBatterySample(data) {
 }
 
 function updateBatteryTrialLiveMetrics() {
+  if (window.NativeMonitor?.enabled) { NativeMonitor.updateMetrics(); return; }
   const countEl = document.getElementById('battery-samples-count');
   const rateEl = document.getElementById('battery-rate-hz');
   const sizeEl = document.getElementById('battery-storage-size');
@@ -1295,6 +1324,7 @@ function updateBatteryTimerDisplay() {
 
 // ── CONTROLE AUTOMÁTICO DE GRAVAÇÃO (INÍCIO E PARADA POR CONEXÃO) ─────────
 async function startAutoRecordingSession(type = 'ble') {
+  if (window.NativeMonitor?.enabled) return;
   if (batteryTrial.isRecording) return;
 
   // Se havia sessão anterior finalizada com dados, arquiva no histórico antes de iniciar
@@ -1332,6 +1362,7 @@ async function startAutoRecordingSession(type = 'ble') {
 }
 
 function stopAutoRecordingSession() {
+  if (window.NativeMonitor?.enabled) return;
   if (!batteryTrial.isRecording) return;
 
   batteryTrial.isRecording = false;
@@ -1380,6 +1411,7 @@ function finishBatteryTrialDueToDischarge() {
 }
 
 function clearBatterySession() {
+  if (window.NativeMonitor?.enabled) { NativeMonitor.clearView(); return; }
   if (batteryTrial.isRecording) {
     if (!confirm('A gravação está em andamento. Deseja realmente interromper e limpar os dados da sessão atual?')) {
       return;
@@ -1560,6 +1592,7 @@ function generateCsvContent(customSamples = null, customStart = null, customEnd 
 
 // ── 1. BAIXAR ARQUIVO CSV NO CELULAR (DOWNLOAD DIRETO) ────────────────────
 function downloadBatteryCsv() {
+  if (window.NativeMonitor?.enabled) return NativeMonitor.exportCurrent(false);
   if (batteryTrial.samples.length === 0) {
     alert('Nenhum dado registrado para exportação.');
     return;
@@ -1578,6 +1611,7 @@ function downloadBatteryCsv() {
 }
 
 async function downloadSessionCsv(sessionId) {
+  if (window.NativeMonitor?.enabled) return NativeMonitor.exportSession(sessionId, false);
   if (!batteryTrial.db) {
     downloadBatteryCsv();
     return;
@@ -1600,6 +1634,7 @@ async function downloadSessionCsv(sessionId) {
 }
 
 async function loadSessionIntoHeatmap(sessionId) {
+  if (window.NativeMonitor?.enabled) return NativeMonitor.loadSession(sessionId);
   const session = await loadSessionFromDB(sessionId);
   if (!session || !session.samples || session.samples.length === 0) {
     alert('Não foi possível carregar os dados desta sessão.');
@@ -1643,6 +1678,7 @@ function loadSessionFromDB(sessionId) {
 
 // ── 2. COMPARTILHAR DADOS VIA WEB SHARE (WHATSAPP, DRIVE, ARQUIVO) ────────
 async function shareBatteryData() {
+  if (window.NativeMonitor?.enabled) return NativeMonitor.exportCurrent(true);
   if (batteryTrial.samples.length === 0) {
     alert('Nenhum dado registrado para compartilhar.');
     return;
@@ -1695,6 +1731,7 @@ async function shareBatteryData() {
 
 // ── 3. ENVIAR POR E-MAIL COM RELATÓRIO EXECUTIVO COMPLETO ─────────────────
 function sendBatteryEmail() {
+  if (window.NativeMonitor?.enabled) return NativeMonitor.exportCurrent(true);
   if (batteryTrial.samples.length === 0) {
     alert('Nenhum dado registrado para enviar por e-mail.');
     return;
@@ -1735,6 +1772,7 @@ Gerado automaticamente pelo aplicativo Monitor Plantar Inteligente.`;
 
 // ── RENDERIZAÇÃO DA LISTA DE SESSÕES SALVAS NO CELULAR ───────────────────
 function renderSavedSessionsUI() {
+  if (window.NativeMonitor?.enabled) { NativeMonitor.renderHistory(); return; }
   const container = document.getElementById('saved-sessions-list');
   const countLabel = document.getElementById('sessions-count-label');
   if (!container) return;

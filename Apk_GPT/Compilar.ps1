@@ -13,8 +13,8 @@ if (-not $apkSdk) { throw 'Configure ANDROID_HOME para um SDK com Android 36 e B
 $env:ANDROID_HOME = $apkSdk
 $apkUtf8 = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'android\local.properties'), ('sdk.dir=' + $apkSdk.Replace('\','/') + "`n"), $apkUtf8)
-& node (Join-Path $PSScriptRoot 'build-web.cjs')
-if ($LASTEXITCODE -ne 0) { throw 'Falha ao incorporar os arquivos web.' }
+& node (Join-Path $PSScriptRoot '..\build.js')
+if ($LASTEXITCODE -ne 0) { throw 'Falha ao sincronizar os arquivos web.' }
 Push-Location -LiteralPath (Join-Path $PSScriptRoot 'android')
 try {
     $apkGradleArgs = @('assembleDebug', '--console=plain')
@@ -23,7 +23,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Compilação Android falhou.' }
 } finally { Pop-Location }
 $apkDestination = Join-Path $PSScriptRoot 'MonitorPlantar-GPT.apk'
+$apkRepoDestination = Join-Path $PSScriptRoot '..\apk\MonitorPlantar-v2.1.apk'
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'android\app\build\outputs\apk\debug\app-debug.apk') -Destination $apkDestination -Force
-$apkHash = (Get-FileHash -LiteralPath $apkDestination -Algorithm SHA256).Hash.ToLowerInvariant()
+Copy-Item -LiteralPath $apkDestination -Destination $apkRepoDestination -Force
+$apkHash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash([System.IO.File]::ReadAllBytes($apkDestination))).Replace("-","").ToLowerInvariant()
 [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot 'MonitorPlantar-GPT.sha256'), "$apkHash  MonitorPlantar-GPT.apk`n", $apkUtf8)
-Write-Output "APK gerado: $apkDestination"
+Write-Output "APK gerado e sincronizado no repositório: $apkRepoDestination"
+
+
