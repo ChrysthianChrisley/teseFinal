@@ -1389,6 +1389,34 @@ input:checked + .slider::before {
   color: var(--text-subtle);
 }
 
+.footer-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.version-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--primary-subtle);
+  color: var(--primary);
+  border: 1px solid var(--primary-border);
+  border-radius: 9999px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+
+.version-timestamp {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--text-subtle);
+}
+
 /* ==========================================================================
    OTIMIZAÇÃO MOBILE: COMPORTAMENTO DE ROLAGEM E VISUALIZAÇÃO DE DADOS
    ========================================================================== */

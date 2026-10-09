@@ -6,6 +6,10 @@
 
 'use strict';
 
+// ── METADADOS E VERSIONAMENTO DA APLICAÇÃO ────────────────────────────────
+const APP_VERSION    = 'v2.1';
+const APP_BUILD_TIME = '09/10/2026 às 14:35';
+
 // ── UUIDs PADRÃO DO FIRMWARE BLE ──────────────────────────────────────────
 const BLE_SVC_UUID  = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 const BLE_CHAR_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
@@ -752,6 +756,7 @@ window.addEventListener('touchmove', (e) => {
 }, { passive: true });
 
 window.addEventListener('DOMContentLoaded', async () => {
+  console.log(`[Monitor Plantar] Aplicação iniciada — Versão ${APP_VERSION} (${APP_BUILD_TIME})`);
   renderInitialState();
   await initBatteryTrial();
   await footHeatmap.init();
@@ -1470,6 +1475,7 @@ function generateCsvContent(customSamples = null, customStart = null, customEnd 
   csv += `# TELEMETRIA E PRESSÃO PLANTAR - PALMILHA INSTRUMENTADA (UERJ)\n`;
   csv += `# Projeto: Monitor Plantar Preventivo de Úlceras no Pé Diabético\n`;
   csv += `# Mestrado Profissional em Telessaúde e Saúde Digital (PPGTS / UERJ)\n`;
+  csv += `# Versão do Aplicativo Web: ${APP_VERSION} (Build: ${APP_BUILD_TIME})\n`;
   csv += `# Data e Hora de Início: ${meta.startedAt}\n`;
   csv += `# Data e Hora de Término: ${meta.endedAt}\n`;
   csv += `# Duração Total Registrada: ${meta.formattedDuration} (${meta.durationSeconds} segundos)\n`;
