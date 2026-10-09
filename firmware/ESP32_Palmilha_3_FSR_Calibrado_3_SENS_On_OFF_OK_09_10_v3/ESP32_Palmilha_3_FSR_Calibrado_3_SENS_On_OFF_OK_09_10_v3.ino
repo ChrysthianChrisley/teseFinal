@@ -451,12 +451,12 @@ void iniciarSincronizacaoOffline() {
 
 class CallbackCaracteristicaBLE : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pChar) override {
-    std::string rx = pChar->getValue();
-    if (rx.empty()) return;
-    String cmd = String(rx.c_str());
+    String cmd = String(pChar->getValue().c_str());
     cmd.trim();
+    if (cmd.length() == 0) return;
     Serial.print("# [BLE COMANDO RECEBIDO] ");
     Serial.println(cmd);
+
 
     if (cmd.indexOf("SYNC_START") >= 0) {
       iniciarSincronizacaoOffline();
