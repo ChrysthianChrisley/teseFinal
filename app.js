@@ -932,6 +932,18 @@ function archiveCurrentSession() {
   }
 }
 
+function showRecoveryAlert(sampleCount) {
+  const banner = document.getElementById('battery-alert-banner');
+  const alertTitle = document.getElementById('battery-alert-title');
+  const alertDesc = document.getElementById('battery-alert-desc');
+  if (banner && alertTitle && alertDesc) {
+    banner.style.display = 'flex';
+    alertTitle.textContent = '💾 Sessão Anterior Recuperada com Sucesso!';
+    alertDesc.textContent = `A página foi recarregada durante o ensaio anterior. Todas as ${sampleCount.toLocaleString('pt-BR')} amostras coletadas antes do recarregamento foram salvas com segurança no histórico deste aparelho.`;
+  }
+  recordAlertEvent('ok', `Sessão anterior recuperada com sucesso (${sampleCount.toLocaleString('pt-BR')} amostras preservadas pós-recarregamento).`);
+}
+
 async function restorePreviousBatterySession() {
   try {
     const metaStr = localStorage.getItem(batteryTrial.metaKey);
@@ -939,10 +951,13 @@ async function restorePreviousBatterySession() {
     const meta = JSON.parse(metaStr);
     if (!meta || !meta.sampleCount) return;
 
+    const wasInterrupted = meta.isRecording === true;
+
     batteryTrial.sessionId = meta.sessionId || null;
     batteryTrial.startTime = meta.startTime;
-    batteryTrial.endTime = meta.endTime;
-    batteryTrial.isFinished = meta.isFinished ?? true;
+    batteryTrial.endTime = meta.endTime || Date.now();
+    batteryTrial.isFinished = true; // Se a página foi fechada/recarregada, a sessão anterior está finalizada
+    batteryTrial.isRecording = false;
     batteryTrial.peakM1 = meta.peakM1 ?? 0;
     batteryTrial.peakM5 = meta.peakM5 ?? 0;
     batteryTrial.peakCalc = meta.peakCalc ?? 0;
@@ -956,6 +971,10 @@ async function restorePreviousBatterySession() {
       req.onsuccess = () => {
         if (req.result && Array.isArray(req.result)) {
           batteryTrial.samples = req.result;
+          if (wasInterrupted) {
+            archiveCurrentSession();
+            showRecoveryAlert(batteryTrial.samples.length);
+          }
         }
         updateBatteryTrialUI();
       };
@@ -964,6 +983,10 @@ async function restorePreviousBatterySession() {
       const cached = localStorage.getItem(batteryTrial.storageKey);
       if (cached) {
         batteryTrial.samples = JSON.parse(cached);
+        if (wasInterrupted) {
+          archiveCurrentSession();
+          showRecoveryAlert(batteryTrial.samples.length);
+        }
       }
       updateBatteryTrialUI();
     }
@@ -1074,6 +1097,41 @@ document.addEventListener('visibilitychange', async () => {
   }
 });
 
+// ── SALVAMENTO EMERGENCIAL E PROTEÇÃO CONTRA FECHAMENTO / RECARREGAMENTO ────
+function emergencySaveSession() {
+  if (!batteryTrial.samples || batteryTrial.samples.length === 0) return;
+
+  const now = Date.now();
+  batteryTrial.isRecording = false;
+  batteryTrial.isFinished = true;
+  if (!batteryTrial.endTime) {
+    batteryTrial.endTime = now;
+  }
+
+  // 1. Grava metadados de forma síncrona imediata no localStorage
+  persistBatteryData();
+
+  // 2. Arquiva formalmente no catálogo de sessões salvas
+  archiveCurrentSession();
+}
+
+// Intercepta tentativa de recarregar ou fechar página (aviso nativo + salvamento prévio)
+window.addEventListener('beforeunload', (e) => {
+  if (batteryTrial.isRecording && batteryTrial.samples.length > 0) {
+    emergencySaveSession();
+    e.preventDefault();
+    e.returnValue = 'Um ensaio da palmilha está em andamento. Os dados foram salvos com segurança, mas a conexão BLE será interrompida.';
+    return e.returnValue;
+  }
+});
+
+// Garante salvamento no descarregamento da página (Lifecycle API do navegador)
+window.addEventListener('pagehide', () => {
+  if (batteryTrial.isRecording && batteryTrial.samples.length > 0) {
+    emergencySaveSession();
+  }
+});
+
 // ── REGISTRO DE CADA AMOSTRA RECEBIDA ──────────────────────────────────────
 function recordBatterySample(data) {
   if (!batteryTrial.isRecording) return;
@@ -1108,8 +1166,8 @@ function recordBatterySample(data) {
   // Adiciona ao buffer contínuo em memória para o mapa térmico de 1h a 12h
   addSampleToRollingHistory(sample);
 
-  // Persiste a cada 50 amostras (~5 segundos a 10 Hz) no IndexedDB do telefone
-  if (batteryTrial.samples.length % 50 === 0) {
+  // Persiste a cada 20 amostras (~2 segundos a 10 Hz) e na 1ª amostra
+  if (batteryTrial.samples.length === 1 || batteryTrial.samples.length % 20 === 0) {
     persistBatteryData();
   }
 
